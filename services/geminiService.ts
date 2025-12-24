@@ -19,16 +19,19 @@ export const generateRehearsalScript = async (scenario: string) => {
     You are an expert presentation coach and director.
     The user wants to rehearse for the following scenario: "${scenario}".
     
-    Create a rehearsal script. Break the performance down into 3 to 5 distinct segments.
+    Create a rehearsal script. Break the performance down into 2 to 3 distinct segments.
     For each segment, provide:
-    1. 'spoken_text': What the speaker should say. (Keep it concise, ~1-2 sentences per segment).
-    2. 'action_description': A visual description of the body language, gesture, or movement the speaker should perform (e.g., "Spread arms wide to show openness", "Point to a chart on the right").
+    1. 'spoken_text': What the speaker should say. Keep it concise (1-2 sentences).
+    2. 'action_description': A brief visual description of the body language or gesture (e.g., "Spread arms wide", "Point to the right").
     
-    Return the response strictly as a JSON object with a 'script' array.
+    Additionally, provide a 'character_description' field that describes the speaker's appearance.
+    Keep it brief, e.g.: "A confident man in a navy suit with short dark hair"
+    
+    Return a JSON object with 'script' array and 'character_description' string.
   `;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.5-flash',
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -42,15 +45,73 @@ export const generateRehearsalScript = async (scenario: string) => {
               properties: {
                 spoken_text: { type: Type.STRING },
                 action_description: { type: Type.STRING }
-              }
+              },
+              required: ['spoken_text', 'action_description']
             }
-          }
-        }
+          },
+          character_description: { type: Type.STRING }
+        },
+        required: ['script', 'character_description']
       }
     }
   });
 
-  return JSON.parse(response.text || '{"script": []}');
+  const responseText = response.text;
+  
+  if (!responseText) {
+    throw new Error("No response text from script generation");
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch (e) {
+    console.error("Failed to parse script response:", responseText.substring(0, 500));
+    throw new Error("Invalid JSON response from script generation");
+  }
+};
+
+/**
+ * Generate a character "costume photo" (定妆照) based on the character description.
+ * Uses Gemini's native image generation to create a full-body shot on a pure white background.
+ */
+export const generateCharacterImage = async (characterDescription: string): Promise<string> => {
+  const ai = getAIClient();
+
+  // Craft a prompt optimized for generating a clean, full-body reference image
+  const prompt = `
+    Generate an image of: ${characterDescription}.
+    
+    Full body shot from head to toe.
+    Standing upright in a neutral pose with arms relaxed at sides.
+    Front view, eye-level perspective, looking directly at camera.
+    Isolated on pure white background, no props, no shadows, no other objects.
+    Neutral, even lighting with no dramatic shadows.
+    Professional photography style, high resolution, clean and crisp.
+  `.trim();
+
+  // Use Gemini's native image generation capability
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-exp',
+    contents: prompt,
+    config: {
+      responseModalities: [Modality.TEXT, Modality.IMAGE],
+    }
+  });
+
+  // Extract image from response
+  const parts = response.candidates?.[0]?.content?.parts;
+  if (!parts) {
+    throw new Error("No content returned from image generation");
+  }
+
+  // Find the image part in the response
+  for (const part of parts) {
+    if (part.inlineData?.mimeType?.startsWith('image/')) {
+      return part.inlineData.data || '';
+    }
+  }
+
+  throw new Error("No image data found in response");
 };
 
 export const generateSpeech = async (text: string): Promise<string> => {
@@ -81,37 +142,102 @@ export const generateSpeech = async (text: string): Promise<string> => {
   return audioBufferToWavBlobUrl(audioBuffer);
 };
 
-export const generateActionVideo = async (actionDescription: string): Promise<string> => {
-  // CRITICAL: Ensure we have a fresh client for Veo calls which might require specific key permissions
+/**
+ * Generate action video using the character reference image as the starting frame.
+ * This ensures visual consistency across all video segments.
+ */
+export const generateActionVideo = async (
+  actionDescription: string, 
+  referenceImageBase64: string
+): Promise<string> => {
   const ai = getAIClient();
 
-  // Veo requires specific prompting to get good results for human actions
-  const prompt = `A professional speaker on a stage. ${actionDescription}. High quality, cinematic lighting, 4k.`;
+  // Craft a prompt that emphasizes the action while keeping camera static
+  // This helps maintain consistency and focus on the body language
+  const prompt = `
+    ${actionDescription}.
+    
+    Static camera, no zoom, no panning, no camera movement.
+    Character remains centered in frame.
+    Maintain consistent scale throughout.
+    Minimal background movement, pure white background.
+    Smooth, natural human movement.
+    Professional demonstration style.
+  `.trim();
+
+  console.log(`[Veo] Starting video generation for: "${actionDescription.substring(0, 50)}..."`);
 
   let operation = await ai.models.generateVideos({
     model: 'veo-3.1-fast-generate-preview',
     prompt: prompt,
+    image: {
+      imageBytes: referenceImageBase64,
+      mimeType: 'image/png'
+    },
     config: {
       numberOfVideos: 1,
       resolution: '720p',
-      aspectRatio: '16:9'
+      aspectRatio: '9:16' // Match the character image aspect ratio
     }
   });
 
-  // Polling loop
-  while (!operation.done) {
+  console.log(`[Veo] Operation started, polling for completion...`);
+
+  // Polling loop with timeout (max 5 minutes)
+  const maxAttempts = 60; // 60 * 5s = 5 minutes
+  let attempts = 0;
+  
+  while (!operation.done && attempts < maxAttempts) {
     await new Promise(resolve => setTimeout(resolve, 5000)); // Poll every 5 seconds
-    operation = await ai.operations.getVideosOperation({ operation: operation });
+    attempts++;
+    console.log(`[Veo] Polling attempt ${attempts}...`);
+    
+    try {
+      operation = await ai.operations.getVideosOperation({ operation: operation });
+    } catch (pollError) {
+      console.error(`[Veo] Polling error:`, pollError);
+      throw new Error(`Video polling failed: ${pollError}`);
+    }
   }
 
-  const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+  if (!operation.done) {
+    throw new Error("Video generation timed out after 5 minutes");
+  }
+
+  // Log the full response for debugging
+  console.log(`[Veo] Operation completed. Response:`, JSON.stringify(operation.response, null, 2));
+
+  // Check for safety filter rejection
+  if (operation.response?.raiMediaFilteredCount && operation.response.raiMediaFilteredCount > 0) {
+    const reasons = operation.response.raiMediaFilteredReasons?.join('; ') || 'Unknown reason';
+    console.warn(`[Veo] Video was filtered by safety system: ${reasons}`);
+    throw new Error(`Video filtered by safety system. Try rephrasing the action description.`);
+  }
+
+  // Check for errors in response
+  const generatedVideo = operation.response?.generatedVideos?.[0];
+  
+  if (!generatedVideo) {
+    console.error(`[Veo] No generated video in response:`, operation.response);
+    throw new Error("Video generation returned no video data");
+  }
+
+  const downloadLink = generatedVideo.video?.uri;
   
   if (!downloadLink) {
-    throw new Error("Video generation failed or returned no URI");
+    console.error(`[Veo] No URI in generated video:`, generatedVideo);
+    throw new Error("Video generation completed but returned no URI");
   }
 
-  // We need to fetch the video to avoid CORS issues or key appending in the <video> tag if possible,
-  // or return the link with the key appended as per instructions.
-  // Instruction says: "You must append an API key when fetching from the download link."
+  console.log(`[Veo] Video generated successfully: ${downloadLink.substring(0, 100)}...`);
+
+  // Append API key for authenticated download
   return `${downloadLink}&key=${process.env.API_KEY}`;
+};
+
+/**
+ * Helper function to convert base64 image to a data URL for display
+ */
+export const base64ToDataUrl = (base64: string, mimeType: string = 'image/png'): string => {
+  return `data:${mimeType};base64,${base64}`;
 };

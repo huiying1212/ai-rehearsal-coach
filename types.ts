@@ -18,7 +18,7 @@ export interface ScriptSegment {
 
 export interface RehearsalState {
   segments: ScriptSegment[];
-  status: 'input' | 'scripting' | 'generating_media' | 'ready';
+  status: 'input' | 'scripting' | 'generating_character' | 'generating_media' | 'ready';
 }
 
 export interface GeminiScriptResponse {
@@ -26,4 +26,13 @@ export interface GeminiScriptResponse {
     spoken_text: string;
     action_description: string;
   }>;
+  character_description: string;
+}
+
+// Character image generation status
+export enum CharacterStatus {
+  IDLE = 'IDLE',
+  GENERATING = 'GENERATING',
+  COMPLETED = 'COMPLETED',
+  ERROR = 'ERROR',
 }
