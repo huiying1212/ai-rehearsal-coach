@@ -39,8 +39,8 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
     if (videoRef.current) {
       if (currentSegment.videoUrl && currentSegment.videoStatus === SegmentStatus.COMPLETED) {
         videoRef.current.src = currentSegment.videoUrl;
+        videoRef.current.loop = false; // Play once only
         videoRef.current.play().catch(e => console.error("Video play failed", e));
-        videoRef.current.loop = true; // Loop action while audio plays
       } else {
         videoRef.current.src = "";
       }

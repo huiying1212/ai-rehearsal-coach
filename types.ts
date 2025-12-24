@@ -18,7 +18,7 @@ export interface ScriptSegment {
 
 export interface RehearsalState {
   segments: ScriptSegment[];
-  status: 'input' | 'scripting' | 'generating_character' | 'generating_media' | 'ready';
+  status: 'input' | 'scripting' | 'generating_character' | 'editing' | 'generating_media' | 'ready';
 }
 
 export interface GeminiScriptResponse {
