@@ -1,16 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ScriptSegment, SegmentStatus } from '../types';
-import { Play, Pause, RotateCcw, User } from 'lucide-react';
+import { Play, Pause, RotateCcw, User, Download, Loader2 } from 'lucide-react';
 import { base64ToDataUrl } from '../services/geminiService';
+import { exportVideo, canExportVideo } from '../services/videoExportService';
 
 interface PlayerProps {
   segments: ScriptSegment[];
   characterImage?: string | null; // Base64 character reference image
 }
 
+interface ExportState {
+  isExporting: boolean;
+  stage: string;
+  progress: number;
+}
+
 const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [exportState, setExportState] = useState<ExportState>({
+    isExporting: false,
+    stage: '',
+    progress: 0
+  });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -83,6 +95,42 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
       videoRef.current.src = "";
     }
   };
+
+  // Handle video export
+  const handleExport = async () => {
+    if (exportState.isExporting) return;
+    
+    setExportState({ isExporting: true, stage: 'Preparing...', progress: 0 });
+    
+    try {
+      await exportVideo(segments, (progress) => {
+        const stageLabels: Record<string, string> = {
+          'preparing': 'Preparing...',
+          'loading': `Loading media (${progress.currentSegment}/${progress.totalSegments})...`,
+          'rendering': `Rendering (${progress.currentSegment}/${progress.totalSegments})...`,
+          'encoding': 'Encoding video...',
+          'complete': 'Complete!'
+        };
+        
+        setExportState({
+          isExporting: true,
+          stage: stageLabels[progress.stage] || progress.stage,
+          progress: progress.progress
+        });
+      });
+      
+      // Reset after a short delay
+      setTimeout(() => {
+        setExportState({ isExporting: false, stage: '', progress: 0 });
+      }, 2000);
+    } catch (error: any) {
+      console.error('Export failed:', error);
+      setExportState({ isExporting: false, stage: '', progress: 0 });
+      alert(`Export failed: ${error.message}`);
+    }
+  };
+
+  const showExportButton = canExportVideo(segments);
 
   // Determine what to show in the stage area
   const hasVideo = currentSegment?.videoUrl && currentSegment.videoStatus === SegmentStatus.COMPLETED;
@@ -178,9 +226,45 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
           >
             <RotateCcw size={20} />
           </button>
+          
+          {/* Export Button */}
+          {showExportButton && (
+            <button 
+              onClick={handleExport}
+              disabled={exportState.isExporting}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-full font-semibold transition-colors"
+              title="Export video (no subtitles)"
+            >
+              {exportState.isExporting ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  <span className="text-sm">{exportState.stage}</span>
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  <span>Export Video</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
-        <div className="text-gray-400 text-sm">
-          {currentIndex >= 0 ? `Segment ${currentIndex + 1} / ${readySegments.length}` : 'Ready'}
+        <div className="flex items-center space-x-4">
+          {/* Export Progress Bar */}
+          {exportState.isExporting && (
+            <div className="flex items-center space-x-2">
+              <div className="w-32 h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${exportState.progress}%` }}
+                />
+              </div>
+              <span className="text-xs text-gray-400">{Math.round(exportState.progress)}%</span>
+            </div>
+          )}
+          <div className="text-gray-400 text-sm">
+            {currentIndex >= 0 ? `Segment ${currentIndex + 1} / ${readySegments.length}` : 'Ready'}
+          </div>
         </div>
       </div>
     </div>
