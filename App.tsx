@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X } from 'lucide-react';
+import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X, Trash2, Plus } from 'lucide-react';
 import { generateRehearsalScript, generateSpeech, generateActionVideo, generateCharacterImage, base64ToDataUrl } from './services/geminiService';
 import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus } from './types';
 import Player from './components/Player';
@@ -99,6 +99,23 @@ export default function App() {
     setSegments(prev => prev.map(seg => 
       seg.id === id ? { ...seg, [field]: value } : seg
     ));
+  };
+
+  // Delete a specific segment
+  const handleDeleteSegment = (id: string) => {
+    setSegments(prev => prev.filter(seg => seg.id !== id));
+  };
+
+  // Add a new empty segment
+  const handleAddSegment = () => {
+    const newSegment: ScriptSegment = {
+      id: `seg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      spokenText: '',
+      actionDescription: '',
+      audioStatus: SegmentStatus.IDLE,
+      videoStatus: SegmentStatus.IDLE,
+    };
+    setSegments(prev => [...prev, newSegment]);
   };
 
   const generateMediaForSegments = async (currentSegments: ScriptSegment[], referenceImage: string | null) => {
@@ -357,9 +374,20 @@ export default function App() {
                   <div key={seg.id} className="bg-gray-900/50 p-4 rounded-xl border border-gray-700/50">
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-xs font-mono text-gray-500 uppercase">Segment {idx + 1}</span>
-                      <div className="flex space-x-2">
-                        <StatusBadge type="Audio" status={seg.audioStatus} />
-                        <StatusBadge type="Video" status={seg.videoStatus} />
+                      <div className="flex items-center space-x-2">
+                        <div className="flex space-x-2">
+                          <StatusBadge type="Audio" status={seg.audioStatus} />
+                          <StatusBadge type="Video" status={seg.videoStatus} />
+                        </div>
+                        {state === 'editing' && (
+                          <button
+                            onClick={() => handleDeleteSegment(seg.id)}
+                            className="ml-2 p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-all"
+                            title="Delete segment"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                     
@@ -405,9 +433,16 @@ export default function App() {
                 ))}
               </div>
               
-              {/* Confirm Button - Only in editing state */}
+              {/* Add Segment & Confirm Buttons - Only in editing state */}
               {state === 'editing' && (
-                <div className="p-4 border-t border-gray-700 bg-gray-800/50">
+                <div className="p-4 border-t border-gray-700 bg-gray-800/50 space-y-3">
+                  <button
+                    onClick={handleAddSegment}
+                    className="w-full bg-indigo-600/50 hover:bg-indigo-600 text-white py-2.5 rounded-xl font-medium flex items-center justify-center transition-all"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add New Segment
+                  </button>
                   <button
                     onClick={handleConfirmAndGenerate}
                     className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold flex items-center justify-center transition-all shadow-lg hover:shadow-emerald-500/25"
