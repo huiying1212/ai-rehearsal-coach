@@ -1,5 +1,5 @@
 {
-  "name": "AI Rehearsal Coach",
+  "name": "Robot Rehearsal Coach",
   "description": "An AI-powered rehearsal assistant that scripts, voices, and visualizes your presentations using Gemini models.",
   "requestFramePermissions": []
 }

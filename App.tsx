@@ -216,22 +216,11 @@ export default function App() {
             <Video className="text-white w-8 h-8" />
           </div>
           <h1 className="text-4xl lg:text-5xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
-            AI Rehearsal Coach
+            Robot Rehearsal Coach
           </h1>
         </div>
-        <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-          Transform your text prompt into a fully staged rehearsal with AI-generated voice and performance video.
-        </p>
+
         
-        {/* Veo Key Selection Button */}
-        <div className="pt-2">
-          <button 
-            onClick={handleApiKeySelection}
-            className="text-xs text-gray-500 hover:text-indigo-400 underline decoration-dotted underline-offset-4"
-          >
-            Manage API Key (Required for Video)
-          </button>
-        </div>
       </header>
 
       {/* Main Content Area */}
