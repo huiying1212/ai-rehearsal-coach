@@ -6,9 +6,11 @@ import Player from './components/Player';
 
 // Declare global for the key selection
 declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
   }
 }
 
@@ -196,6 +198,41 @@ export default function App() {
 
   const updateSegmentStatus = (id: string, type: 'audioStatus' | 'videoStatus', status: SegmentStatus) => {
     setSegments(prev => prev.map(s => s.id === id ? { ...s, [type]: status } : s));
+  };
+
+  // Handle regenerating video for a specific segment
+  const handleRegenerateVideo = async (segmentId: string) => {
+    const segment = segments.find(s => s.id === segmentId);
+    if (!segment || !characterImageBase64) return;
+
+    // Check API key
+    try {
+      if (window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        if (!hasKey) {
+          setError("Please select an API key first to generate videos.");
+          return;
+        }
+      }
+    } catch(e) {
+      setError("Failed to check API key. Please try again.");
+      return;
+    }
+
+    updateSegmentStatus(segmentId, 'videoStatus', SegmentStatus.GENERATING);
+    
+    try {
+      const videoUrl = await generateActionVideo(segment.actionDescription, characterImageBase64);
+      
+      setSegments(prev => prev.map(s => 
+        s.id === segmentId 
+          ? { ...s, videoStatus: SegmentStatus.COMPLETED, videoUrl } 
+          : s
+      ));
+    } catch (e) {
+      console.error(`Video regeneration failed for ${segmentId}`, e);
+      updateSegmentStatus(segmentId, 'videoStatus', SegmentStatus.ERROR);
+    }
   };
 
   const handleApiKeySelection = async () => {
@@ -416,12 +453,15 @@ export default function App() {
                       <p className="text-sm text-gray-300 mb-2 italic">"{seg.spokenText}"</p>
                     )}
                     
-                    {/* Action Description - Editable in editing state */}
-                    {state === 'editing' ? (
+                    {/* Action Description - Editable in editing state or when video failed */}
+                    {state === 'editing' || seg.videoStatus === SegmentStatus.ERROR ? (
                       <div>
                         <label className="text-xs text-gray-500 mb-1 block flex items-center">
                           <Video className="w-3 h-3 mr-1" />
                           Action Description
+                          {seg.videoStatus === SegmentStatus.ERROR && (
+                            <span className="ml-2 text-red-400">(Video generation failed - edit and regenerate)</span>
+                          )}
                         </label>
                         <textarea
                           value={seg.actionDescription}
@@ -429,6 +469,25 @@ export default function App() {
                           className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2 text-sm text-indigo-300 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           rows={2}
                         />
+                        {seg.videoStatus === SegmentStatus.ERROR && (
+                          <button
+                            onClick={() => handleRegenerateVideo(seg.id)}
+                            disabled={seg.videoStatus === SegmentStatus.GENERATING || !characterImageBase64}
+                            className="mt-2 w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-all"
+                          >
+                            {seg.videoStatus === SegmentStatus.GENERATING ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                Regenerating Video...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                                Regenerate Video
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div className="flex items-center text-xs text-indigo-300 bg-indigo-900/20 px-2 py-1 rounded w-fit">
