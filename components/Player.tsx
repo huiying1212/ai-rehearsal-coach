@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ScriptSegment, SegmentStatus } from '../types';
-import { Play, Pause, RotateCcw, User, Download, Loader2 } from 'lucide-react';
+import { Play, Pause, RotateCcw, User, Download, Loader2, Presentation } from 'lucide-react';
 import { base64ToDataUrl } from '../services/geminiService';
 import { exportVideo, canExportVideo } from '../services/videoExportService';
+import SlideRenderer from './SlideRenderer';
+import './SlideRenderer.scss';
 
 interface PlayerProps {
   segments: ScriptSegment[];
@@ -132,73 +134,81 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
 
   const showExportButton = canExportVideo(segments);
 
-  // Determine what to show in the stage area
+  // Determine what to show in the video area
   const hasVideo = currentSegment?.videoUrl && currentSegment.videoStatus === SegmentStatus.COMPLETED;
-  const showCharacterFallback = !hasVideo && characterImage && isPlaying;
+  const showCharacterFallback = !hasVideo && characterImage;
+
+  // Get current slide design
+  const currentSlide = currentSegment?.slideDesign || null;
 
   return (
     <div className="bg-gray-800 rounded-xl overflow-hidden shadow-2xl border border-gray-700">
-      {/* Stage Area - Updated to 9:16 aspect ratio to match character image */}
-      <div className="relative aspect-[9/16] max-h-[600px] bg-black flex items-center justify-center mx-auto">
-        {hasVideo ? (
-          <video 
-            ref={videoRef}
-            className="w-full h-full object-contain"
-            muted 
-            playsInline
-          />
-        ) : showCharacterFallback ? (
-          // Show character image as fallback when video not ready
-          <div className="relative w-full h-full">
-            <img 
-              src={base64ToDataUrl(characterImage)} 
-              alt="Character"
-              className="w-full h-full object-contain"
-            />
-            <div className="absolute top-4 left-4 bg-yellow-900/80 text-yellow-300 text-xs px-3 py-1 rounded-full flex items-center">
-              <User className="w-3 h-3 mr-1" />
-              Audio Only (Video generating...)
-            </div>
-          </div>
-        ) : characterImage && !isPlaying ? (
-          // Show character image as poster when not playing
-          <div className="relative w-full h-full">
-            <img 
-              src={base64ToDataUrl(characterImage)} 
-              alt="Character"
-              className="w-full h-full object-contain opacity-60"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div className="bg-indigo-600/80 p-4 rounded-full mb-3 inline-block">
-                  <Play className="w-8 h-8 text-white" />
-                </div>
-                <p className="text-white font-semibold">Press Play to Start Rehearsal</p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center p-8 text-gray-500">
-            {isPlaying ? (
-              <div className="animate-pulse">
-                <p className="text-xl font-bold text-gray-400">Audio Only Rehearsal</p>
-                <p className="text-sm">(No video generated for this segment)</p>
-              </div>
+      {/* Main Stage Area - 16:9 aspect ratio for presentation style */}
+      <div className="relative aspect-video bg-gradient-to-br from-slate-900 to-slate-800">
+        {/* Slide Area - Main content */}
+        <div className="absolute inset-0 p-4 pr-[220px]">
+          <div className="w-full h-full rounded-xl overflow-hidden shadow-2xl">
+            {currentSlide ? (
+              <SlideRenderer slide={currentSlide} />
             ) : (
-              <p>Press Play to Start Rehearsal</p>
+              <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 text-slate-400">
+                <Presentation className="w-16 h-16 mb-4 opacity-30" />
+                <p className="text-lg font-medium">Presentation Slides</p>
+                <p className="text-sm opacity-60">Start rehearsal to see slides</p>
+              </div>
             )}
+          </div>
+        </div>
+
+        {/* Video/Character Area - Bottom right corner */}
+        <div className="absolute right-4 bottom-4 w-[200px] aspect-[9/16] max-h-[calc(100%-2rem)] bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-slate-600">
+          {hasVideo ? (
+            <video 
+              ref={videoRef}
+              className="w-full h-full object-cover"
+              muted 
+              playsInline
+            />
+          ) : showCharacterFallback ? (
+            <div className="relative w-full h-full">
+              <img 
+                src={base64ToDataUrl(characterImage)} 
+                alt="Character"
+                className={`w-full h-full object-cover ${isPlaying ? '' : 'opacity-70'}`}
+              />
+              {isPlaying && (
+                <div className="absolute bottom-2 left-2 right-2 bg-yellow-900/90 text-yellow-300 text-[10px] px-2 py-1 rounded flex items-center justify-center">
+                  <User className="w-3 h-3 mr-1" />
+                  Audio Only
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-slate-500">
+              <User className="w-8 h-8 mb-2 opacity-50" />
+              <p className="text-xs text-center px-2">Presenter</p>
+            </div>
+          )}
+        </div>
+
+        {/* Play overlay when not playing */}
+        {!isPlaying && segments.length > 0 && (
+          <div 
+            onClick={togglePlay}
+            className="absolute inset-0 flex items-center justify-center cursor-pointer bg-black/20 hover:bg-black/30 transition-colors"
+          >
+            <div className="bg-indigo-600/90 p-5 rounded-full shadow-lg transform hover:scale-110 transition-transform">
+              <Play className="w-10 h-10 text-white" />
+            </div>
           </div>
         )}
 
-        {/* Overlay Text - Subtitles style */}
+        {/* Subtitle bar at bottom */}
         {currentSegment && (
-          <div className="absolute bottom-8 left-0 right-0 text-center px-4">
-            <div className="inline-block bg-black/70 backdrop-blur-sm px-6 py-3 rounded-lg border border-white/10 max-w-full">
-              <p className="text-lg md:text-xl font-semibold text-white mb-1">
+          <div className="absolute bottom-4 left-4 right-[230px]">
+            <div className="bg-black/80 backdrop-blur-sm px-4 py-2.5 rounded-lg border border-white/10">
+              <p className="text-sm text-white font-medium leading-relaxed">
                 "{currentSegment.spokenText}"
-              </p>
-              <p className="text-xs text-indigo-300 uppercase tracking-wider font-bold">
-                Action: {currentSegment.actionDescription}
               </p>
             </div>
           </div>
@@ -233,7 +243,7 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
               onClick={handleExport}
               disabled={exportState.isExporting}
               className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-full font-semibold transition-colors"
-              title="Export video (no subtitles)"
+              title="Export video with slides"
             >
               {exportState.isExporting ? (
                 <>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X, Trash2, Plus } from 'lucide-react';
+import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X, Trash2, Plus, Presentation } from 'lucide-react';
 import { generateRehearsalScript, generateSpeech, generateActionVideo, generateCharacterImage, base64ToDataUrl } from './services/geminiService';
-import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus } from './types';
+import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus, SlideDesign } from './types';
 import Player from './components/Player';
 
 // Declare global for the key selection
@@ -40,6 +40,12 @@ export default function App() {
         id: `seg-${index}-${Date.now()}`,
         spokenText: item.spoken_text,
         actionDescription: item.action_description,
+        slideDesign: {
+          title: item.slide_design.title,
+          type: item.slide_design.type,
+          content: item.slide_design.content,
+          items: item.slide_design.items,
+        },
         audioStatus: SegmentStatus.IDLE,
         videoStatus: SegmentStatus.IDLE,
       }));
@@ -112,10 +118,22 @@ export default function App() {
       id: `seg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       spokenText: '',
       actionDescription: '',
+      slideDesign: {
+        title: 'New Slide',
+        type: 'text',
+        content: '',
+      },
       audioStatus: SegmentStatus.IDLE,
       videoStatus: SegmentStatus.IDLE,
     };
     setSegments(prev => [...prev, newSegment]);
+  };
+
+  // Update a specific segment's slide design
+  const handleUpdateSlideDesign = (id: string, updates: Partial<SlideDesign>) => {
+    setSegments(prev => prev.map(seg => 
+      seg.id === id ? { ...seg, slideDesign: { ...seg.slideDesign, ...updates } } : seg
+    ));
   };
 
   const generateMediaForSegments = async (currentSegments: ScriptSegment[], referenceImage: string | null) => {
@@ -427,6 +445,56 @@ export default function App() {
                       <div className="flex items-center text-xs text-indigo-300 bg-indigo-900/20 px-2 py-1 rounded w-fit">
                         <Video className="w-3 h-3 mr-1" />
                         {seg.actionDescription}
+                      </div>
+                    )}
+                    
+                    {/* Slide Design - Editable in editing state */}
+                    {state === 'editing' ? (
+                      <div className="mt-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                        <label className="text-xs text-gray-500 mb-2 block flex items-center">
+                          <Presentation className="w-3 h-3 mr-1" />
+                          Slide Design
+                        </label>
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={seg.slideDesign.title}
+                            onChange={(e) => handleUpdateSlideDesign(seg.id, { title: e.target.value })}
+                            placeholder="Slide Title"
+                            className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          />
+                          <select
+                            value={seg.slideDesign.type}
+                            onChange={(e) => handleUpdateSlideDesign(seg.id, { type: e.target.value as 'text' | 'list' | 'images' })}
+                            className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          >
+                            <option value="text">Text</option>
+                            <option value="list">List</option>
+                          </select>
+                          {seg.slideDesign.type === 'text' && (
+                            <textarea
+                              value={seg.slideDesign.content || ''}
+                              onChange={(e) => handleUpdateSlideDesign(seg.id, { content: e.target.value })}
+                              placeholder="Slide content..."
+                              className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                              rows={2}
+                            />
+                          )}
+                          {seg.slideDesign.type === 'list' && (
+                            <textarea
+                              value={(seg.slideDesign.items || []).join('\n')}
+                              onChange={(e) => handleUpdateSlideDesign(seg.id, { items: e.target.value.split('\n').filter(l => l.trim()) })}
+                              placeholder="One item per line..."
+                              className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                              rows={3}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex items-center text-xs text-emerald-300 bg-emerald-900/20 px-2 py-1 rounded w-fit">
+                        <Presentation className="w-3 h-3 mr-1" />
+                        Slide: {seg.slideDesign.title} ({seg.slideDesign.type})
                       </div>
                     )}
                   </div>

@@ -23,6 +23,12 @@ export const generateRehearsalScript = async (scenario: string) => {
     For each segment, provide:
     1. 'spoken_text': What the speaker should say. Keep it concise (1-2 sentences).
     2. 'action_description': A brief visual description of the body language or gesture (e.g., "Spread arms wide", "Point to the right").
+    3. 'slide_design': The visual slide content to display alongside this segment. This will be shown as a presentation slide.
+       - 'title': A short title for the slide (under 8 words)
+       - 'type': Either "text", "list", or "images"
+       - For "text" type: provide 'content' with 1-3 sentences (under 100 words)
+       - For "list" type: provide 'items' array with 3-5 bullet points (each under 15 words)
+       - Focus on KEY POINTS that visualize what the speaker is saying
     
     Additionally, provide a 'character_description' field that describes the speaker's appearance.
     Keep it brief, e.g.: "A confident man in a navy suit with short dark hair"
@@ -44,9 +50,25 @@ export const generateRehearsalScript = async (scenario: string) => {
               type: Type.OBJECT,
               properties: {
                 spoken_text: { type: Type.STRING },
-                action_description: { type: Type.STRING }
+                action_description: { type: Type.STRING },
+                slide_design: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    type: { 
+                      type: Type.STRING,
+                      enum: ['text', 'list', 'images']
+                    },
+                    content: { type: Type.STRING },
+                    items: { 
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING }
+                    }
+                  },
+                  required: ['title', 'type']
+                }
               },
-              required: ['spoken_text', 'action_description']
+              required: ['spoken_text', 'action_description', 'slide_design']
             }
           },
           character_description: { type: Type.STRING }
