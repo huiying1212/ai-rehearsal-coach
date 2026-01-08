@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X, Trash2, Plus } from 'lucide-react';
-import { generateRehearsalScript, generateSpeech, generateActionVideo, generateCharacterImage, base64ToDataUrl } from './services/geminiService';
-import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus } from './types';
+import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X, Trash2, Plus, Presentation, Hand } from 'lucide-react';
+import { generateRehearsalScript, generateSpeech, generateActionVideo, generateCharacterImage, base64ToDataUrl, GestureTypeValue } from './services/geminiService';
+import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus, SlideDesign, GestureType } from './types';
 import Player from './components/Player';
 
 // Declare global for the key selection
 declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
   }
 }
 
@@ -39,9 +41,16 @@ export default function App() {
       const newSegments: ScriptSegment[] = result.script.map((item, index) => ({
         id: `seg-${index}-${Date.now()}`,
         spokenText: item.spoken_text,
-        actionDescription: item.action_description,
+        gestureType: item.gesture_type as GestureType,
+        gestureDescription: item.gesture_description, // 仅对 deictic/iconic/metaphoric 有值
+        slideDesign: {
+          title: item.slide_design.title,
+          type: item.slide_design.type,
+          content: item.slide_design.content,
+          items: item.slide_design.items,
+        },
         audioStatus: SegmentStatus.IDLE,
-        videoStatus: SegmentStatus.IDLE,
+        videoStatus: item.gesture_type === 'none' ? SegmentStatus.COMPLETED : SegmentStatus.IDLE, // 无手势的段落不需要生成视频
       }));
 
       setSegments(newSegments);
@@ -95,10 +104,33 @@ export default function App() {
   };
 
   // Update a specific segment's text
-  const handleUpdateSegmentText = (id: string, field: 'spokenText' | 'actionDescription', value: string) => {
+  const handleUpdateSegmentText = (id: string, field: 'spokenText' | 'gestureDescription', value: string) => {
     setSegments(prev => prev.map(seg => 
       seg.id === id ? { ...seg, [field]: value } : seg
     ));
+  };
+
+  // Update a specific segment's gesture type
+  const handleUpdateGestureType = (id: string, gestureType: GestureType) => {
+    setSegments(prev => prev.map(seg => {
+      if (seg.id !== id) return seg;
+      
+      // 如果从无手势改为有手势，需要重置视频状态
+      const needsVideo = gestureType !== GestureType.NONE;
+      const hadVideo = seg.gestureType !== GestureType.NONE;
+      
+      return { 
+        ...seg, 
+        gestureType,
+        // 如果改为 deictic/iconic/metaphoric 但没有描述，清空描述
+        gestureDescription: ['deictic', 'iconic', 'metaphoric'].includes(gestureType) 
+          ? seg.gestureDescription 
+          : undefined,
+        // 重置视频状态
+        videoStatus: needsVideo ? SegmentStatus.IDLE : SegmentStatus.COMPLETED,
+        videoUrl: needsVideo && hadVideo ? seg.videoUrl : undefined
+      };
+    }));
   };
 
   // Delete a specific segment
@@ -111,23 +143,39 @@ export default function App() {
     const newSegment: ScriptSegment = {
       id: `seg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       spokenText: '',
-      actionDescription: '',
+      gestureType: GestureType.BEAT, // 默认使用节拍手势
+      gestureDescription: undefined,
+      slideDesign: {
+        title: 'New Slide',
+        type: 'text',
+        content: '',
+      },
       audioStatus: SegmentStatus.IDLE,
       videoStatus: SegmentStatus.IDLE,
     };
     setSegments(prev => [...prev, newSegment]);
   };
 
+  // Update a specific segment's slide design
+  const handleUpdateSlideDesign = (id: string, updates: Partial<SlideDesign>) => {
+    setSegments(prev => prev.map(seg => 
+      seg.id === id ? { ...seg, slideDesign: { ...seg.slideDesign, ...updates } } : seg
+    ));
+  };
+
   const generateMediaForSegments = async (currentSegments: ScriptSegment[], referenceImage: string | null) => {
-    // 1. Generate Audio (Parallel)
+    // 1. Generate Audio (Parallel) - 获取音频时长用于时间轴计算
     const audioPromises = currentSegments.map(async (seg) => {
       try {
         updateSegmentStatus(seg.id, 'audioStatus', SegmentStatus.GENERATING);
         const audioUrl = await generateSpeech(seg.spokenText);
         
+        // 获取音频时长
+        const audioDuration = await getAudioDuration(audioUrl);
+        
         setSegments(prev => prev.map(s => 
           s.id === seg.id 
-            ? { ...s, audioStatus: SegmentStatus.COMPLETED, audioUrl } 
+            ? { ...s, audioStatus: SegmentStatus.COMPLETED, audioUrl, audioDuration } 
             : s
         ));
       } catch (e) {
@@ -138,7 +186,8 @@ export default function App() {
 
     await Promise.all(audioPromises);
 
-    // 2. Generate Video (Sequential) - only if we have reference image
+    // 2. Generate Video (Sequential) - 仅对需要视频的段落生成
+    // 无手势(none)的段落直接使用静态图片，不需要生成视频
     let canGenVideo = referenceImage !== null;
     
     // Also check API key
@@ -156,16 +205,40 @@ export default function App() {
     }
 
     if (canGenVideo && referenceImage) {
-      for (const seg of currentSegments) {
+      // 过滤出需要生成视频的段落（非 none 手势类型）
+      const segmentsNeedingVideo = currentSegments.filter(seg => seg.gestureType !== GestureType.NONE);
+      
+      for (const seg of segmentsNeedingVideo) {
         try {
           updateSegmentStatus(seg.id, 'videoStatus', SegmentStatus.GENERATING);
-          const videoUrl = await generateActionVideo(seg.actionDescription, referenceImage);
           
+          // 根据手势类型调用不同的视频生成逻辑
+          const result = await generateActionVideo(
+            seg.gestureType as GestureTypeValue,
+            seg.spokenText,
+            seg.gestureDescription,
+            referenceImage
+          );
+          
+          console.log(`[App] Video generated for ${seg.id}, URL: ${result.videoUrl.substring(0, 80)}...`);
+          
+          // 获取视频实际时长（可能会因为CORS失败，使用超时保护）
+          console.log(`[App] Getting video duration for ${seg.id}...`);
+          const videoDuration = await getVideoDuration(result.videoUrl);
+          console.log(`[App] Video duration for ${seg.id}: ${videoDuration}s`);
+          
+          console.log(`[App] Updating segment ${seg.id} status to COMPLETED`);
           setSegments(prev => prev.map(s => 
             s.id === seg.id 
-              ? { ...s, videoStatus: SegmentStatus.COMPLETED, videoUrl } 
+              ? { 
+                  ...s, 
+                  videoStatus: SegmentStatus.COMPLETED, 
+                  videoUrl: result.videoUrl,
+                  videoDuration 
+                } 
               : s
           ));
+          console.log(`[App] Segment ${seg.id} updated`);
         } catch (e) {
           console.error(`Video gen failed for ${seg.id}`, e);
           updateSegmentStatus(seg.id, 'videoStatus', SegmentStatus.ERROR);
@@ -176,8 +249,109 @@ export default function App() {
     setState('ready');
   };
 
+  // 获取音频时长的辅助函数
+  const getAudioDuration = (audioUrl: string): Promise<number> => {
+    return new Promise((resolve) => {
+      const audio = new Audio();
+      audio.onloadedmetadata = () => {
+        resolve(audio.duration);
+      };
+      audio.onerror = () => {
+        resolve(0);
+      };
+      audio.src = audioUrl;
+    });
+  };
+
+  // 获取视频时长的辅助函数（带超时）
+  const getVideoDuration = (videoUrl: string): Promise<number> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      
+      // 设置超时，避免无限等待
+      const timeout = setTimeout(() => {
+        console.warn('[getVideoDuration] Timeout - using default duration');
+        resolve(0);
+      }, 10000); // 10秒超时
+      
+      video.onloadedmetadata = () => {
+        clearTimeout(timeout);
+        resolve(video.duration);
+      };
+      video.onerror = (e) => {
+        clearTimeout(timeout);
+        console.warn('[getVideoDuration] Error loading video:', e);
+        resolve(0);
+      };
+      // 有些浏览器需要这个事件
+      video.oncanplaythrough = () => {
+        if (video.duration && video.duration !== Infinity) {
+          clearTimeout(timeout);
+          resolve(video.duration);
+        }
+      };
+      video.src = videoUrl;
+      video.load(); // 显式触发加载
+    });
+  };
+
   const updateSegmentStatus = (id: string, type: 'audioStatus' | 'videoStatus', status: SegmentStatus) => {
     setSegments(prev => prev.map(s => s.id === id ? { ...s, [type]: status } : s));
+  };
+
+  // Handle regenerating video for a specific segment
+  const handleRegenerateVideo = async (segmentId: string) => {
+    const segment = segments.find(s => s.id === segmentId);
+    if (!segment || !characterImageBase64) return;
+
+    // 无手势类型不需要生成视频
+    if (segment.gestureType === GestureType.NONE) {
+      setError("This segment doesn't need video generation (no gesture).");
+      return;
+    }
+
+    // Check API key
+    try {
+      if (window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        if (!hasKey) {
+          setError("Please select an API key first to generate videos.");
+          return;
+        }
+      }
+    } catch(e) {
+      setError("Failed to check API key. Please try again.");
+      return;
+    }
+
+    updateSegmentStatus(segmentId, 'videoStatus', SegmentStatus.GENERATING);
+    
+    try {
+      const result = await generateActionVideo(
+        segment.gestureType as GestureTypeValue,
+        segment.spokenText,
+        segment.gestureDescription,
+        characterImageBase64
+      );
+      
+      // 获取视频实际时长
+      const videoDuration = await getVideoDuration(result.videoUrl);
+      
+      setSegments(prev => prev.map(s => 
+        s.id === segmentId 
+          ? { 
+              ...s, 
+              videoStatus: SegmentStatus.COMPLETED, 
+              videoUrl: result.videoUrl,
+              videoDuration 
+            } 
+          : s
+      ));
+    } catch (e) {
+      console.error(`Video regeneration failed for ${segmentId}`, e);
+      updateSegmentStatus(segmentId, 'videoStatus', SegmentStatus.ERROR);
+    }
   };
 
   const handleApiKeySelection = async () => {
@@ -198,22 +372,11 @@ export default function App() {
             <Video className="text-white w-8 h-8" />
           </div>
           <h1 className="text-4xl lg:text-5xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
-            AI Rehearsal Coach
+            Robot Rehearsal Coach
           </h1>
         </div>
-        <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-          Transform your text prompt into a fully staged rehearsal with AI-generated voice and performance video.
-        </p>
+
         
-        {/* Veo Key Selection Button */}
-        <div className="pt-2">
-          <button 
-            onClick={handleApiKeySelection}
-            className="text-xs text-gray-500 hover:text-indigo-400 underline decoration-dotted underline-offset-4"
-          >
-            Manage API Key (Required for Video)
-          </button>
-        </div>
       </header>
 
       {/* Main Content Area */}
@@ -409,24 +572,122 @@ export default function App() {
                       <p className="text-sm text-gray-300 mb-2 italic">"{seg.spokenText}"</p>
                     )}
                     
-                    {/* Action Description - Editable in editing state */}
-                    {state === 'editing' ? (
-                      <div>
+                    {/* Gesture Type & Description - Editable in editing state or when video failed */}
+                    {state === 'editing' || seg.videoStatus === SegmentStatus.ERROR ? (
+                      <div className="space-y-2">
                         <label className="text-xs text-gray-500 mb-1 block flex items-center">
-                          <Video className="w-3 h-3 mr-1" />
-                          Action Description
+                          <Hand className="w-3 h-3 mr-1" />
+                          Gesture Type
+                          {seg.videoStatus === SegmentStatus.ERROR && (
+                            <span className="ml-2 text-red-400">(Video generation failed - edit and regenerate)</span>
+                          )}
                         </label>
-                        <textarea
-                          value={seg.actionDescription}
-                          onChange={(e) => handleUpdateSegmentText(seg.id, 'actionDescription', e.target.value)}
-                          className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2 text-sm text-indigo-300 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                          rows={2}
-                        />
+                        <select
+                          value={seg.gestureType}
+                          onChange={(e) => handleUpdateGestureType(seg.id, e.target.value as GestureType)}
+                          className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value={GestureType.NONE}>无手势 (None) - 使用静态图片</option>
+                          <option value={GestureType.BEAT}>节拍手势 (Beat) - 自然说话节奏</option>
+                          <option value={GestureType.DEICTIC}>指示手势 (Deictic) - 指向特定方向</option>
+                          <option value={GestureType.ICONIC}>形象手势 (Iconic) - 描绘具体事物</option>
+                          <option value={GestureType.METAPHORIC}>隐喻手势 (Metaphoric) - 表达抽象概念</option>
+                        </select>
+                        
+                        {/* 仅对 deictic/iconic/metaphoric 显示手势描述输入 */}
+                        {['deictic', 'iconic', 'metaphoric'].includes(seg.gestureType) && (
+                          <div>
+                            <label className="text-xs text-gray-500 mb-1 block flex items-center">
+                              <Video className="w-3 h-3 mr-1" />
+                              Gesture Description (具体手势描述)
+                            </label>
+                            <textarea
+                              value={seg.gestureDescription || ''}
+                              onChange={(e) => handleUpdateSegmentText(seg.id, 'gestureDescription', e.target.value)}
+                              placeholder="描述具体的手势动作，如：双手向外展开表示范围..."
+                              className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2 text-sm text-indigo-300 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                              rows={2}
+                            />
+                          </div>
+                        )}
+                        
+                        {seg.videoStatus === SegmentStatus.ERROR && seg.gestureType !== GestureType.NONE && (
+                          <button
+                            onClick={() => handleRegenerateVideo(seg.id)}
+                            disabled={seg.videoStatus === SegmentStatus.GENERATING || !characterImageBase64}
+                            className="mt-2 w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-all"
+                          >
+                            {seg.videoStatus === SegmentStatus.GENERATING ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                Regenerating Video...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                                Regenerate Video
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     ) : (
-                      <div className="flex items-center text-xs text-indigo-300 bg-indigo-900/20 px-2 py-1 rounded w-fit">
-                        <Video className="w-3 h-3 mr-1" />
-                        {seg.actionDescription}
+                      <div className="flex items-center text-xs bg-indigo-900/20 px-2 py-1 rounded w-fit">
+                        <Hand className="w-3 h-3 mr-1" />
+                        <GestureTypeBadge type={seg.gestureType} />
+                        {seg.gestureDescription && (
+                          <span className="ml-2 text-indigo-300">: {seg.gestureDescription}</span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Slide Design - Editable in editing state */}
+                    {state === 'editing' ? (
+                      <div className="mt-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                        <label className="text-xs text-gray-500 mb-2 block flex items-center">
+                          <Presentation className="w-3 h-3 mr-1" />
+                          Slide Design
+                        </label>
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={seg.slideDesign.title}
+                            onChange={(e) => handleUpdateSlideDesign(seg.id, { title: e.target.value })}
+                            placeholder="Slide Title"
+                            className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          />
+                          <select
+                            value={seg.slideDesign.type}
+                            onChange={(e) => handleUpdateSlideDesign(seg.id, { type: e.target.value as 'text' | 'list' })}
+                            className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          >
+                            <option value="text">Text</option>
+                            <option value="list">List</option>
+                          </select>
+                          {seg.slideDesign.type === 'text' && (
+                            <textarea
+                              value={seg.slideDesign.content || ''}
+                              onChange={(e) => handleUpdateSlideDesign(seg.id, { content: e.target.value })}
+                              placeholder="Slide content..."
+                              className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                              rows={2}
+                            />
+                          )}
+                          {seg.slideDesign.type === 'list' && (
+                            <textarea
+                              value={(seg.slideDesign.items || []).join('\n')}
+                              onChange={(e) => handleUpdateSlideDesign(seg.id, { items: e.target.value.split('\n').filter(l => l.trim()) })}
+                              placeholder="One item per line..."
+                              className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                              rows={3}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex items-center text-xs text-emerald-300 bg-emerald-900/20 px-2 py-1 rounded w-fit">
+                        <Presentation className="w-3 h-3 mr-1" />
+                        Slide: {seg.slideDesign.title} ({seg.slideDesign.type})
                       </div>
                     )}
                   </div>
@@ -553,4 +814,19 @@ const CharacterStatusBadge = ({ status }: { status: CharacterStatus }) => {
       {text}
     </span>
   );
+};
+
+// 手势类型徽章组件
+const GestureTypeBadge = ({ type }: { type: GestureType }) => {
+  const configs: Record<GestureType, { color: string; label: string }> = {
+    [GestureType.NONE]: { color: "text-gray-400", label: "无手势" },
+    [GestureType.BEAT]: { color: "text-blue-400", label: "节拍" },
+    [GestureType.DEICTIC]: { color: "text-amber-400", label: "指示" },
+    [GestureType.ICONIC]: { color: "text-emerald-400", label: "形象" },
+    [GestureType.METAPHORIC]: { color: "text-purple-400", label: "隐喻" },
+  };
+
+  const config = configs[type] || configs[GestureType.BEAT];
+
+  return <span className={config.color}>{config.label}</span>;
 };

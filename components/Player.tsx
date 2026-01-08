@@ -1,8 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ScriptSegment, SegmentStatus } from '../types';
-import { Play, Pause, RotateCcw, User, Download, Loader2 } from 'lucide-react';
+import { ScriptSegment, SegmentStatus, GestureType } from '../types';
+import { Play, Pause, RotateCcw, User, Download, Loader2, Hand } from 'lucide-react';
 import { base64ToDataUrl } from '../services/geminiService';
-import { exportVideo, canExportVideo } from '../services/videoExportService';
+import { exportComposedVideo, canExportVideo } from '../services/videoExportService';
+
+// 手势类型标签映射
+const getGestureLabel = (type: GestureType): string => {
+  const labels: Record<GestureType, string> = {
+    [GestureType.NONE]: '无手势',
+    [GestureType.BEAT]: '节拍手势',
+    [GestureType.DEICTIC]: '指示手势',
+    [GestureType.ICONIC]: '形象手势',
+    [GestureType.METAPHORIC]: '隐喻手势',
+  };
+  return labels[type] || '手势';
+};
 
 interface PlayerProps {
   segments: ScriptSegment[];
@@ -27,34 +39,47 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Filter only ready segments to avoid errors during playback
+  // 只需要音频完成即可播放，视频可选
   const readySegments = segments.filter(
     (s) => s.audioStatus === SegmentStatus.COMPLETED
   );
 
   const currentSegment = currentIndex >= 0 ? readySegments[currentIndex] : null;
 
+  // 判断当前段落是否需要视频（非 none 手势类型且视频已完成）
+  const hasVideoForSegment = (seg: ScriptSegment | null): boolean => {
+    if (!seg) return false;
+    return seg.gestureType !== GestureType.NONE && 
+           seg.videoStatus === SegmentStatus.COMPLETED && 
+           !!seg.videoUrl;
+  };
+
   useEffect(() => {
     if (!isPlaying || !currentSegment) return;
 
-    // Set up Audio
+    const hasVideo = hasVideoForSegment(currentSegment);
+
+    // Set up TTS Audio as master timeline
     if (audioRef.current) {
       audioRef.current.src = currentSegment.audioUrl || '';
       audioRef.current.play().catch(e => console.error("Audio play failed", e));
       
-      // When audio ends, move to next
+      // When TTS audio ends, move to next segment (TTS is the master timeline)
       audioRef.current.onended = () => {
         handleNext();
       };
     }
 
-    // Set up Video
+    // Set up Video - 仅对有视频的段落播放
     if (videoRef.current) {
-      if (currentSegment.videoUrl && currentSegment.videoStatus === SegmentStatus.COMPLETED) {
-        videoRef.current.src = currentSegment.videoUrl;
-        videoRef.current.loop = false; // Play once only
+      if (hasVideo) {
+        videoRef.current.src = currentSegment.videoUrl!;
+        videoRef.current.muted = true; // 静音视频，使用TTS音频作为主音频
+        videoRef.current.loop = false;
         videoRef.current.play().catch(e => console.error("Video play failed", e));
       } else {
         videoRef.current.src = "";
+        videoRef.current.pause();
       }
     }
 
@@ -96,18 +121,19 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
     }
   };
 
-  // Handle video export
+  // Handle video export - 使用新的合成导出函数
   const handleExport = async () => {
-    if (exportState.isExporting) return;
+    if (exportState.isExporting || !characterImage) return;
     
     setExportState({ isExporting: true, stage: 'Preparing...', progress: 0 });
     
     try {
-      await exportVideo(segments, (progress) => {
+      await exportComposedVideo(segments, characterImage, (progress) => {
         const stageLabels: Record<string, string> = {
           'preparing': 'Preparing...',
           'loading': `Loading media (${progress.currentSegment}/${progress.totalSegments})...`,
           'rendering': `Rendering (${progress.currentSegment}/${progress.totalSegments})...`,
+          'mixing_audio': 'Mixing audio tracks...',
           'encoding': 'Encoding video...',
           'complete': 'Complete!'
         };
@@ -130,34 +156,47 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
     }
   };
 
-  const showExportButton = canExportVideo(segments);
+  const showExportButton = canExportVideo(segments) && characterImage;
 
   // Determine what to show in the stage area
-  const hasVideo = currentSegment?.videoUrl && currentSegment.videoStatus === SegmentStatus.COMPLETED;
-  const showCharacterFallback = !hasVideo && characterImage && isPlaying;
+  // 对于有视频的段落显示视频，对于无手势段落显示静态图片
+  const hasVideo = hasVideoForSegment(currentSegment);
+  // 无手势或视频未完成时，显示静态角色图片
+  const showStaticImage = !hasVideo && characterImage && isPlaying;
 
   return (
     <div className="bg-gray-800 rounded-xl overflow-hidden shadow-2xl border border-gray-700">
       {/* Stage Area - Updated to 9:16 aspect ratio to match character image */}
       <div className="relative aspect-[9/16] max-h-[600px] bg-black flex items-center justify-center mx-auto">
         {hasVideo ? (
+          // 有视频的段落：播放视频（视频静音，使用TTS音频）
           <video 
             ref={videoRef}
             className="w-full h-full object-contain"
             muted 
             playsInline
           />
-        ) : showCharacterFallback ? (
-          // Show character image as fallback when video not ready
+        ) : showStaticImage ? (
+          // 无手势或视频未完成的段落：显示静态角色图片
           <div className="relative w-full h-full">
             <img 
               src={base64ToDataUrl(characterImage)} 
               alt="Character"
               className="w-full h-full object-contain"
             />
-            <div className="absolute top-4 left-4 bg-yellow-900/80 text-yellow-300 text-xs px-3 py-1 rounded-full flex items-center">
-              <User className="w-3 h-3 mr-1" />
-              Audio Only (Video generating...)
+            {/* 显示当前段落的手势类型状态 */}
+            <div className="absolute top-4 left-4 bg-gray-900/80 text-gray-300 text-xs px-3 py-1 rounded-full flex items-center">
+              <Hand className="w-3 h-3 mr-1" />
+              {currentSegment?.gestureType === GestureType.NONE ? (
+                <span>无手势 - 静态画面</span>
+              ) : currentSegment?.videoStatus === SegmentStatus.GENERATING ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  <span>视频生成中...</span>
+                </>
+              ) : (
+                <span>Audio Only</span>
+              )}
             </div>
           </div>
         ) : characterImage && !isPlaying ? (
@@ -198,7 +237,8 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
                 "{currentSegment.spokenText}"
               </p>
               <p className="text-xs text-indigo-300 uppercase tracking-wider font-bold">
-                Action: {currentSegment.actionDescription}
+                {getGestureLabel(currentSegment.gestureType)}
+                {currentSegment.gestureDescription && `: ${currentSegment.gestureDescription}`}
               </p>
             </div>
           </div>

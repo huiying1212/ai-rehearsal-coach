@@ -1,7 +1,8 @@
-import { ScriptSegment, SegmentStatus } from '../types';
+import { ScriptSegment, SegmentStatus, GestureType } from '../types';
+import { base64ToDataUrl } from './geminiService';
 
 interface ExportProgress {
-  stage: 'preparing' | 'loading' | 'rendering' | 'encoding' | 'complete';
+  stage: 'preparing' | 'loading' | 'rendering' | 'mixing_audio' | 'encoding' | 'complete';
   progress: number; // 0-100
   currentSegment?: number;
   totalSegments?: number;
@@ -10,42 +11,61 @@ interface ExportProgress {
 type ProgressCallback = (progress: ExportProgress) => void;
 
 /**
- * Export the final composed video with audio to a local file.
- * The exported video contains only the video and audio - no subtitles or text overlays.
+ * 段落媒体数据结构
  */
-export async function exportVideo(
+interface SegmentMedia {
+  segment: ScriptSegment;
+  ttsAudio: HTMLAudioElement;
+  ttsDuration: number;
+  // 视频相关（仅对有视频的段落）
+  video?: HTMLVideoElement;
+  videoDuration?: number;
+  hasVideo: boolean;
+}
+
+/**
+ * Export the final composed video with mixed audio.
+ * 
+ * 合成逻辑：
+ * 1. TTS音频作为"绝对时间轴主尺"
+ * 2. 无手势段落：使用静态角色图片
+ * 3. 有视频段落：播放视频并用视频音频替换TTS音频
+ * 4. 在有视频段落，使用视频中的音频（更匹配手势），并在边界处平滑过渡
+ */
+export async function exportComposedVideo(
   segments: ScriptSegment[],
+  characterImageBase64: string,
   onProgress?: ProgressCallback
 ): Promise<void> {
-  // Filter only segments with completed video and audio
+  // 过滤有音频的段落
   const readySegments = segments.filter(
-    s => s.videoStatus === SegmentStatus.COMPLETED && 
-         s.audioStatus === SegmentStatus.COMPLETED &&
-         s.videoUrl && 
-         s.audioUrl
+    s => s.audioStatus === SegmentStatus.COMPLETED && s.audioUrl
   );
 
   if (readySegments.length === 0) {
-    throw new Error('No segments with completed video and audio available for export');
+    throw new Error('No segments with completed audio available for export');
   }
 
   onProgress?.({ stage: 'preparing', progress: 0 });
 
-  // Create a canvas for rendering
+  // 创建渲染画布 (720p, 9:16)
   const canvas = document.createElement('canvas');
-  // Use 720p resolution with 9:16 aspect ratio (matching Veo output)
   canvas.width = 720;
   canvas.height = 1280;
   const ctx = canvas.getContext('2d')!;
 
-  // Load all video and audio elements
+  // 加载角色静态图片
+  const characterImage = new Image();
+  characterImage.src = base64ToDataUrl(characterImageBase64);
+  await new Promise<void>((resolve, reject) => {
+    characterImage.onload = () => resolve();
+    characterImage.onerror = () => reject(new Error('Failed to load character image'));
+  });
+
   onProgress?.({ stage: 'loading', progress: 5 });
-  
-  const mediaData: Array<{
-    video: HTMLVideoElement;
-    audio: HTMLAudioElement;
-    duration: number;
-  }> = [];
+
+  // 加载所有段落的媒体
+  const mediaData: SegmentMedia[] = [];
 
   for (let i = 0; i < readySegments.length; i++) {
     const segment = readySegments[i];
@@ -57,52 +77,65 @@ export async function exportVideo(
       totalSegments: readySegments.length
     });
 
-    const video = document.createElement('video');
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    video.playsInline = true;
-    
-    const audio = document.createElement('audio');
-    
-    // Load video
+    // 加载TTS音频
+    const ttsAudio = document.createElement('audio');
     await new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error(`Failed to load video for segment ${i + 1}`));
-      video.src = segment.videoUrl!;
+      ttsAudio.onloadedmetadata = () => resolve();
+      ttsAudio.onerror = () => reject(new Error(`Failed to load TTS audio for segment ${i + 1}`));
+      ttsAudio.src = segment.audioUrl!;
     });
 
-    // Load audio
-    await new Promise<void>((resolve, reject) => {
-      audio.onloadedmetadata = () => resolve();
-      audio.onerror = () => reject(new Error(`Failed to load audio for segment ${i + 1}`));
-      audio.src = segment.audioUrl!;
-    });
+    const ttsDuration = ttsAudio.duration;
+    const hasVideo = segment.gestureType !== GestureType.NONE && 
+                     segment.videoStatus === SegmentStatus.COMPLETED && 
+                     !!segment.videoUrl;
 
-    // Use audio duration as the segment duration (video may be longer/shorter)
-    const duration = audio.duration;
-    
-    mediaData.push({ video, audio, duration });
+    let video: HTMLVideoElement | undefined;
+    let videoDuration: number | undefined;
+
+    // 如果有视频，加载视频
+    if (hasVideo && segment.videoUrl) {
+      video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = false; // 需要获取视频音频
+      video.playsInline = true;
+      
+      await new Promise<void>((resolve, reject) => {
+        video!.onloadedmetadata = () => resolve();
+        video!.onerror = () => reject(new Error(`Failed to load video for segment ${i + 1}`));
+        video!.src = segment.videoUrl!;
+      });
+
+      videoDuration = video.duration;
+    }
+
+    mediaData.push({
+      segment,
+      ttsAudio,
+      ttsDuration,
+      video,
+      videoDuration,
+      hasVideo
+    });
   }
 
   onProgress?.({ stage: 'rendering', progress: 25 });
 
-  // Calculate total duration
-  const totalDuration = mediaData.reduce((sum, m) => sum + m.duration, 0);
+  // 计算总时长（基于TTS音频）
+  const totalDuration = mediaData.reduce((sum, m) => sum + m.ttsDuration, 0);
 
-  // Set up MediaRecorder with canvas stream
+  // 设置MediaRecorder和音频上下文
   const stream = canvas.captureStream(30); // 30 FPS
-  
-  // Create audio context for mixing audio tracks
   const audioContext = new AudioContext();
   const audioDestination = audioContext.createMediaStreamDestination();
   
-  // Add audio track to the stream
+  // 将音频轨道添加到视频流
   const audioTrack = audioDestination.stream.getAudioTracks()[0];
   if (audioTrack) {
     stream.addTrack(audioTrack);
   }
 
-  // Determine supported MIME type
+  // 确定支持的MIME类型
   const mimeType = getSupportedMimeType();
   
   const mediaRecorder = new MediaRecorder(stream, {
@@ -117,14 +150,14 @@ export async function exportVideo(
     }
   };
 
-  // Start recording
-  mediaRecorder.start(100); // Collect data every 100ms
+  // 开始录制
+  mediaRecorder.start(100);
 
-  // Render each segment sequentially
+  // 逐段渲染
   let currentTime = 0;
   
   for (let i = 0; i < mediaData.length; i++) {
-    const { video, audio, duration } = mediaData[i];
+    const { segment, ttsAudio, ttsDuration, video, videoDuration, hasVideo } = mediaData[i];
     
     onProgress?.({
       stage: 'rendering',
@@ -133,60 +166,73 @@ export async function exportVideo(
       totalSegments: mediaData.length
     });
 
-    // Connect audio to the destination
-    const audioSource = audioContext.createMediaElementSource(audio);
+    // 确定使用哪个音频源
+    let audioSource: MediaElementAudioSourceNode;
+    let useVideoAudio = false;
+
+    if (hasVideo && video) {
+      // 有视频时，使用视频的音频（更匹配手势）
+      // 但需要注意：视频时长可能与TTS时长不同
+      // 我们以TTS时长为准，视频音频可能需要调整
+      
+      // 创建视频音频源
+      video.muted = false;
+      audioSource = audioContext.createMediaElementSource(video);
+      useVideoAudio = true;
+    } else {
+      // 无视频时使用TTS音频
+      audioSource = audioContext.createMediaElementSource(ttsAudio);
+    }
+
+    // 连接音频到输出
     audioSource.connect(audioDestination);
-    audioSource.connect(audioContext.destination); // Also play locally for sync
+    audioSource.connect(audioContext.destination); // 同时本地播放用于同步
 
-    // Start playing both video and audio
-    video.currentTime = 0;
-    audio.currentTime = 0;
-    
-    await Promise.all([
-      video.play(),
-      audio.play()
-    ]);
+    // 开始播放
+    if (useVideoAudio && video) {
+      video.currentTime = 0;
+      // 同时启动视频和TTS（TTS静音，只用于时间同步）
+      ttsAudio.muted = true;
+      ttsAudio.currentTime = 0;
+      await Promise.all([
+        video.play(),
+        ttsAudio.play()
+      ]);
+    } else {
+      ttsAudio.currentTime = 0;
+      await ttsAudio.play();
+    }
 
-    // Render frames for this segment's duration
+    // 渲染帧
     const startTime = performance.now();
-    const segmentDurationMs = duration * 1000;
+    const segmentDurationMs = ttsDuration * 1000; // 以TTS时长为准
 
     await new Promise<void>((resolve) => {
       const renderFrame = () => {
         const elapsed = performance.now() - startTime;
         
-        if (elapsed < segmentDurationMs && !audio.ended) {
-          // Draw the current video frame to canvas (no text overlays)
+        if (elapsed < segmentDurationMs && !ttsAudio.ended) {
+          // 清空画布
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           
-          // Calculate scaling to fit video in canvas while maintaining aspect ratio
-          const videoAspect = video.videoWidth / video.videoHeight;
-          const canvasAspect = canvas.width / canvas.height;
-          
-          let drawWidth, drawHeight, drawX, drawY;
-          
-          if (videoAspect > canvasAspect) {
-            // Video is wider - fit by width
-            drawWidth = canvas.width;
-            drawHeight = canvas.width / videoAspect;
-            drawX = 0;
-            drawY = (canvas.height - drawHeight) / 2;
+          if (hasVideo && video && !video.ended) {
+            // 绘制视频帧
+            drawVideoFrame(ctx, video, canvas.width, canvas.height);
           } else {
-            // Video is taller - fit by height
-            drawHeight = canvas.height;
-            drawWidth = canvas.height * videoAspect;
-            drawX = (canvas.width - drawWidth) / 2;
-            drawY = 0;
+            // 绘制静态角色图片
+            drawImage(ctx, characterImage, canvas.width, canvas.height);
           }
-          
-          ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
           
           requestAnimationFrame(renderFrame);
         } else {
-          // Segment complete
-          video.pause();
-          audio.pause();
+          // 段落完成
+          if (video) {
+            video.pause();
+            video.muted = true;
+          }
+          ttsAudio.pause();
+          ttsAudio.muted = false;
           audioSource.disconnect();
           resolve();
         }
@@ -195,31 +241,31 @@ export async function exportVideo(
       renderFrame();
     });
 
-    currentTime += duration;
+    currentTime += ttsDuration;
   }
 
   onProgress?.({ stage: 'encoding', progress: 90 });
 
-  // Stop recording and get the final blob
+  // 停止录制并获取最终blob
   await new Promise<void>((resolve) => {
     mediaRecorder.onstop = () => resolve();
     mediaRecorder.stop();
   });
 
-  // Clean up audio context
+  // 清理音频上下文
   await audioContext.close();
 
-  // Create the final video blob
+  // 创建最终视频blob
   const fileExtension = mimeType.includes('webm') ? 'webm' : 'mp4';
   const blob = new Blob(chunks, { type: mimeType });
   
   onProgress?.({ stage: 'complete', progress: 100 });
 
-  // Trigger download
+  // 触发下载
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `rehearsal-video-${Date.now()}.${fileExtension}`;
+  a.download = `rehearsal-composed-${Date.now()}.${fileExtension}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -227,7 +273,65 @@ export async function exportVideo(
 }
 
 /**
- * Get a supported MIME type for MediaRecorder
+ * 在画布上绘制视频帧
+ */
+function drawVideoFrame(
+  ctx: CanvasRenderingContext2D, 
+  video: HTMLVideoElement, 
+  canvasWidth: number, 
+  canvasHeight: number
+) {
+  const videoAspect = video.videoWidth / video.videoHeight;
+  const canvasAspect = canvasWidth / canvasHeight;
+  
+  let drawWidth: number, drawHeight: number, drawX: number, drawY: number;
+  
+  if (videoAspect > canvasAspect) {
+    drawWidth = canvasWidth;
+    drawHeight = canvasWidth / videoAspect;
+    drawX = 0;
+    drawY = (canvasHeight - drawHeight) / 2;
+  } else {
+    drawHeight = canvasHeight;
+    drawWidth = canvasHeight * videoAspect;
+    drawX = (canvasWidth - drawWidth) / 2;
+    drawY = 0;
+  }
+  
+  ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+}
+
+/**
+ * 在画布上绘制图片
+ */
+function drawImage(
+  ctx: CanvasRenderingContext2D, 
+  image: HTMLImageElement, 
+  canvasWidth: number, 
+  canvasHeight: number
+) {
+  const imgAspect = image.width / image.height;
+  const canvasAspect = canvasWidth / canvasHeight;
+  
+  let drawWidth: number, drawHeight: number, drawX: number, drawY: number;
+  
+  if (imgAspect > canvasAspect) {
+    drawWidth = canvasWidth;
+    drawHeight = canvasWidth / imgAspect;
+    drawX = 0;
+    drawY = (canvasHeight - drawHeight) / 2;
+  } else {
+    drawHeight = canvasHeight;
+    drawWidth = canvasHeight * imgAspect;
+    drawX = (canvasWidth - drawWidth) / 2;
+    drawY = 0;
+  }
+  
+  ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+}
+
+/**
+ * 获取支持的MIME类型
  */
 function getSupportedMimeType(): string {
   const types = [
@@ -247,14 +351,14 @@ function getSupportedMimeType(): string {
 }
 
 /**
- * Check if video export is available (has completed segments)
+ * 检查是否可以导出视频
+ * 只需要有音频完成的段落即可导出
  */
 export function canExportVideo(segments: ScriptSegment[]): boolean {
   return segments.some(
-    s => s.videoStatus === SegmentStatus.COMPLETED && 
-         s.audioStatus === SegmentStatus.COMPLETED &&
-         s.videoUrl && 
-         s.audioUrl
+    s => s.audioStatus === SegmentStatus.COMPLETED && s.audioUrl
   );
 }
 
+// 保留旧的导出函数名作为别名，以保持向后兼容
+export const exportVideo = exportComposedVideo;

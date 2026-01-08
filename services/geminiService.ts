@@ -16,16 +16,34 @@ const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 export const generateRehearsalScript = async (scenario: string) => {
   const ai = getAIClient();
   const prompt = `
-    You are an expert presentation coach and director.
+    You are an expert presentation coach and director specializing in gesture analysis.
     The user wants to rehearse for the following scenario: "${scenario}".
     
-    Create a rehearsal script. Break the performance down into 2 to 3 distinct segments.
+    Create a rehearsal script. Break the performance down into 3 to 5 distinct segments.
+    
+    For each segment, analyze what gesture category is most appropriate:
+    
+    **Gesture Categories:**
+    - "none": No gesture needed - speaker maintains neutral posture
+    - "beat": Beat gesture - natural rhythmic hand movements that accompany speech (most common, use for general speaking)
+    - "deictic": Deictic/Pointing gesture - pointing to something specific (use when referring to directions, locations, or specific items)
+    - "iconic": Iconic gesture - mimics the shape or action of something concrete (use when describing physical objects, sizes, movements)
+    - "metaphoric": Metaphoric gesture - represents abstract concepts with physical gestures (use when emphasizing key concepts, abstract ideas, emotions)
+    
+    **Important Guidelines:**
+    - Most segments should use "beat" (natural speaking rhythm) or "none"
+    - Only use "deictic", "iconic", or "metaphoric" when the content is highly visual, emphasizes key concepts, or requires specific physical representation
+    - For "deictic", "iconic", or "metaphoric" gestures, you MUST provide a detailed 'gesture_description' explaining the specific movement
+    - For "beat" and "none" gestures, do NOT include 'gesture_description'
+    
     For each segment, provide:
     1. 'spoken_text': What the speaker should say. Keep it concise (1-2 sentences).
-    2. 'action_description': A brief visual description of the body language or gesture (e.g., "Spread arms wide", "Point to the right").
+    2. 'gesture_type': One of "none", "beat", "deictic", "iconic", "metaphoric"
+    3. 'gesture_description': (ONLY for deictic/iconic/metaphoric) A brief description of the specific gesture
+    4. 'slide_design': Object with 'title', 'type' ("text" or "list"), and 'content' or 'items'
     
     Additionally, provide a 'character_description' field that describes the speaker's appearance.
-    Keep it brief, e.g.: "A confident man in a navy suit with short dark hair"
+    Keep it brief, e.g.: "A confident woman in a navy blazer with shoulder-length dark hair"
     
     Return a JSON object with 'script' array and 'character_description' string.
   `;
@@ -44,9 +62,23 @@ export const generateRehearsalScript = async (scenario: string) => {
               type: Type.OBJECT,
               properties: {
                 spoken_text: { type: Type.STRING },
-                action_description: { type: Type.STRING }
+                gesture_type: { 
+                  type: Type.STRING,
+                  enum: ['none', 'beat', 'deictic', 'iconic', 'metaphoric']
+                },
+                gesture_description: { type: Type.STRING },
+                slide_design: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    type: { type: Type.STRING, enum: ['text', 'list'] },
+                    content: { type: Type.STRING },
+                    items: { type: Type.ARRAY, items: { type: Type.STRING } }
+                  },
+                  required: ['title', 'type']
+                }
               },
-              required: ['spoken_text', 'action_description']
+              required: ['spoken_text', 'gesture_type', 'slide_design']
             }
           },
           character_description: { type: Type.STRING }
@@ -143,29 +175,77 @@ export const generateSpeech = async (text: string): Promise<string> => {
 };
 
 /**
- * Generate action video using the character reference image as the starting frame.
- * This ensures visual consistency across all video segments.
+ * 手势类型定义 - 与 types.ts 保持一致
+ */
+export type GestureTypeValue = 'none' | 'beat' | 'deictic' | 'iconic' | 'metaphoric';
+
+/**
+ * 视频生成结果，包含URL和实际时长
+ */
+export interface VideoGenerationResult {
+  videoUrl: string;
+  videoDuration?: number; // 视频实际时长（秒）
+}
+
+/**
+ * Generate action video using the character reference image as both start and end frame.
+ * Video generation differs based on gesture type:
+ * - Beat: Generate natural speaking movements based on spoken text only
+ * - Deictic/Iconic/Metaphoric: Include detailed gesture description in prompt
+ * 
+ * Video duration is determined by the model itself.
  */
 export const generateActionVideo = async (
-  actionDescription: string, 
+  gestureType: GestureTypeValue,
+  spokenText: string,
+  gestureDescription: string | undefined, 
   referenceImageBase64: string
-): Promise<string> => {
+): Promise<VideoGenerationResult> => {
   const ai = getAIClient();
 
-  // Craft a prompt that emphasizes the action while keeping camera static
-  // This helps maintain consistency and focus on the body language
+  // 根据手势类型构建不同的提示词
+  let actionPrompt: string;
+  
+  if (gestureType === 'beat') {
+    // Beat 手势：根据说话内容自然生成动作，不包含具体手势描述
+    actionPrompt = `
+      A person speaking naturally with rhythmic beat gestures.
+      They are saying: "${spokenText}"
+      
+      Generate natural speaking movements:
+      - Subtle hand movements that emphasize speech rhythm
+      - Natural head movements and expressions
+      - Body language appropriate for conversational speaking
+      - No exaggerated or specific gestures, just natural speaking motion
+    `.trim();
+  } else {
+    // Deictic/Iconic/Metaphoric 手势：包含具体的手势描述
+    actionPrompt = `
+      ${gestureDescription || 'Natural gesture'}.
+      The person is saying: "${spokenText}"
+      
+      Perform this specific gesture while speaking naturally.
+    `.trim();
+  }
+
+  // 完整的视频生成提示词
   const prompt = `
-    ${actionDescription}.
+    ${actionPrompt}
     
-    Static camera, no zoom, no panning, no camera movement.
-    Character remains centered in frame.
-    Maintain consistent scale throughout.
-    Minimal background movement, pure white background.
-    Smooth, natural human movement.
-    Professional demonstration style.
+    Camera and scene requirements:
+    - Static camera, no zoom, no panning, no camera movement
+    - Character remains centered in frame
+    - Maintain consistent scale throughout
+    - Pure white background, minimal background movement
+    - Smooth, natural human movement
+    - Professional demonstration style
+    - The video should start and end with the character in the same pose as the reference image
   `.trim();
 
-  console.log(`[Veo] Starting video generation for: "${actionDescription.substring(0, 50)}..."`);
+  const logText = gestureType === 'beat' 
+    ? spokenText.substring(0, 50) 
+    : (gestureDescription?.substring(0, 50) || spokenText.substring(0, 50));
+  console.log(`[Veo] Starting ${gestureType} gesture video for: "${logText}..."`);
 
   let operation = await ai.models.generateVideos({
     model: 'veo-3.1-fast-generate-preview',
@@ -178,6 +258,7 @@ export const generateActionVideo = async (
       numberOfVideos: 1,
       resolution: '720p',
       aspectRatio: '9:16' // Match the character image aspect ratio
+      // 不指定 durationSeconds，让模型自己决定时长
     }
   });
 
@@ -231,8 +312,12 @@ export const generateActionVideo = async (
 
   console.log(`[Veo] Video generated successfully: ${downloadLink.substring(0, 100)}...`);
 
-  // Append API key for authenticated download
-  return `${downloadLink}&key=${process.env.API_KEY}`;
+  // 返回视频URL（带API key）和可能的时长信息
+  return {
+    videoUrl: `${downloadLink}&key=${process.env.API_KEY}`,
+    // 如果API返回了时长信息，可以在这里提取
+    videoDuration: undefined // Veo API 目前不在响应中返回时长，需要在客户端加载视频后获取
+  };
 };
 
 /**
