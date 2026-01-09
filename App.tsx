@@ -164,7 +164,10 @@ export default function App() {
   };
 
   const generateMediaForSegments = async (currentSegments: ScriptSegment[], referenceImage: string | null) => {
-    // 1. Generate Audio (Parallel) - 获取音频时长用于时间轴计算
+    // 1. Generate Audio (Parallel) - 获取音频时长用于指定视频时长
+    // 存储每个段落的音频信息，用于后续视频生成
+    const audioResults: Map<string, { audioUrl: string; audioDuration: number }> = new Map();
+    
     const audioPromises = currentSegments.map(async (seg) => {
       try {
         updateSegmentStatus(seg.id, 'audioStatus', SegmentStatus.GENERATING);
@@ -172,6 +175,10 @@ export default function App() {
         
         // 获取音频时长
         const audioDuration = await getAudioDuration(audioUrl);
+        console.log(`[App] Audio for ${seg.id}: ${audioDuration.toFixed(2)}s`);
+        
+        // 保存音频结果供视频生成使用
+        audioResults.set(seg.id, { audioUrl, audioDuration });
         
         setSegments(prev => prev.map(s => 
           s.id === seg.id 
@@ -187,7 +194,7 @@ export default function App() {
     await Promise.all(audioPromises);
 
     // 2. Generate Video (Sequential) - 仅对需要视频的段落生成
-    // 无手势(none)的段落直接使用静态图片，不需要生成视频
+    // 使用音频时长来指定视频时长，确保视频能覆盖整个音频
     let canGenVideo = referenceImage !== null;
     
     // Also check API key
@@ -212,7 +219,21 @@ export default function App() {
         try {
           updateSegmentStatus(seg.id, 'videoStatus', SegmentStatus.GENERATING);
           
-          // 根据手势类型调用不同的视频生成逻辑
+          // 获取该段落的音频时长（用于日志）
+          const audioInfo = audioResults.get(seg.id);
+          const audioDuration = audioInfo?.audioDuration;
+          
+          // 注意：使用参考图片时，Veo API 只支持 8 秒视频
+          // https://ai.google.dev/gemini-api/docs/video#limitations
+          if (audioDuration) {
+            if (audioDuration > 8) {
+              console.warn(`[App] ⚠️ Segment ${seg.id} audio is ${audioDuration.toFixed(2)}s (>8s), but video is fixed at 8s. Consider splitting this segment.`);
+            } else {
+              console.log(`[App] Segment ${seg.id} audio is ${audioDuration.toFixed(2)}s, video will be 8s (fixed when using reference image)`);
+            }
+          }
+          
+          // 根据手势类型调用视频生成（使用参考图片时固定为8秒）
           const result = await generateActionVideo(
             seg.gestureType as GestureTypeValue,
             seg.spokenText,
@@ -225,7 +246,7 @@ export default function App() {
           // 获取视频实际时长（可能会因为CORS失败，使用超时保护）
           console.log(`[App] Getting video duration for ${seg.id}...`);
           const videoDuration = await getVideoDuration(result.videoUrl);
-          console.log(`[App] Video duration for ${seg.id}: ${videoDuration}s`);
+          console.log(`[App] Video duration for ${seg.id}: ${videoDuration}s (target was ${targetDuration?.toFixed(2)}s)`);
           
           console.log(`[App] Updating segment ${seg.id} status to COMPLETED`);
           setSegments(prev => prev.map(s => 
@@ -328,6 +349,7 @@ export default function App() {
     updateSegmentStatus(segmentId, 'videoStatus', SegmentStatus.GENERATING);
     
     try {
+      // 使用参考图片时，Veo API 只支持 8 秒视频
       const result = await generateActionVideo(
         segment.gestureType as GestureTypeValue,
         segment.spokenText,

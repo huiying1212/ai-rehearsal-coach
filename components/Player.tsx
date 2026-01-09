@@ -58,15 +58,36 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
     if (!isPlaying || !currentSegment) return;
 
     const hasVideo = hasVideoForSegment(currentSegment);
+    
+    // 追踪 TTS 和视频是否都已结束
+    let ttsEnded = false;
+    let videoEnded = !hasVideo; // 如果没有视频，视为已结束
 
-    // Set up TTS Audio as master timeline
+    const checkAndProceed = () => {
+      // 只有当 TTS 和视频都结束时才进入下一个段落
+      if (ttsEnded && videoEnded) {
+        handleNext();
+      }
+    };
+
+    // 设置 TTS Audio
     if (audioRef.current) {
       audioRef.current.src = currentSegment.audioUrl || '';
+      
+      if (hasVideo) {
+        // 有视频时：TTS静音，但仍然播放用于时间同步
+        audioRef.current.muted = true;
+      } else {
+        // 无视频时：播放TTS声音
+        audioRef.current.muted = false;
+      }
+      
       audioRef.current.play().catch(e => console.error("Audio play failed", e));
       
-      // When TTS audio ends, move to next segment (TTS is the master timeline)
+      // TTS 结束时检查是否可以进入下一段
       audioRef.current.onended = () => {
-        handleNext();
+        ttsEnded = true;
+        checkAndProceed();
       };
     }
 
@@ -74,12 +95,21 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
     if (videoRef.current) {
       if (hasVideo) {
         videoRef.current.src = currentSegment.videoUrl!;
-        videoRef.current.muted = true; // 静音视频，使用TTS音频作为主音频
+        // 有视频时：使用视频中的声音（更匹配手势动作）
+        videoRef.current.muted = false;
         videoRef.current.loop = false;
         videoRef.current.play().catch(e => console.error("Video play failed", e));
+        
+        // 视频结束时检查是否可以进入下一段
+        videoRef.current.onended = () => {
+          videoEnded = true;
+          checkAndProceed();
+        };
       } else {
         videoRef.current.src = "";
+        videoRef.current.muted = true;
         videoRef.current.pause();
+        videoRef.current.onended = null;
       }
     }
 
@@ -114,10 +144,12 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
     if(audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      audioRef.current.muted = false; // 重置静音状态
     }
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.src = "";
+      videoRef.current.muted = true;
     }
   };
 

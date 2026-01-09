@@ -19,25 +19,35 @@ export const generateRehearsalScript = async (scenario: string) => {
     You are an expert presentation coach and director specializing in gesture analysis.
     The user wants to rehearse for the following scenario: "${scenario}".
     
-    Create a rehearsal script. Break the performance down into 3 to 5 distinct segments.
+    Create a rehearsal script. Break the performance down into **fine-grained segments**.
+    
+    **CRITICAL SEGMENT LENGTH RULES:**
+    - Each video segment is FIXED at 8 seconds (Veo API limitation with reference images)
+    - Each 'spoken_text' should be 1-2 short sentences that can be spoken in 6-8 seconds
+    - English: approximately 15-25 words per segment
+    - Chinese: approximately 20-40 characters per segment
+    - If content is longer, split it into multiple segments
+    - Aim for 5-15 segments total for a typical presentation
+    - Leave ~1-2 seconds buffer at the end for the character to return to neutral pose
     
     For each segment, analyze what gesture category is most appropriate:
     
     **Gesture Categories:**
-    - "none": No gesture needed - speaker maintains neutral posture
+    - "none": No gesture needed - speaker maintains neutral posture (use sparingly, only for pauses or transitions)
     - "beat": Beat gesture - natural rhythmic hand movements that accompany speech (most common, use for general speaking)
     - "deictic": Deictic/Pointing gesture - pointing to something specific (use when referring to directions, locations, or specific items)
     - "iconic": Iconic gesture - mimics the shape or action of something concrete (use when describing physical objects, sizes, movements)
     - "metaphoric": Metaphoric gesture - represents abstract concepts with physical gestures (use when emphasizing key concepts, abstract ideas, emotions)
     
     **Important Guidelines:**
-    - Most segments should use "beat" (natural speaking rhythm) or "none"
-    - Only use "deictic", "iconic", or "metaphoric" when the content is highly visual, emphasizes key concepts, or requires specific physical representation
-    - For "deictic", "iconic", or "metaphoric" gestures, you MUST provide a detailed 'gesture_description' explaining the specific movement
+    - Most segments should use "beat" (natural speaking rhythm)
+    - Use "none" only for pauses or transitions between major topics
+    - Use "deictic", "iconic", or "metaphoric" when the content is highly visual or emphatic
+    - For "deictic", "iconic", or "metaphoric" gestures, you MUST provide a detailed 'gesture_description'
     - For "beat" and "none" gestures, do NOT include 'gesture_description'
     
     For each segment, provide:
-    1. 'spoken_text': What the speaker should say. Keep it concise (1-2 sentences).
+    1. 'spoken_text': What the speaker should say. **Keep it to ONE short sentence (15-25 words max)**.
     2. 'gesture_type': One of "none", "beat", "deictic", "iconic", "metaphoric"
     3. 'gesture_description': (ONLY for deictic/iconic/metaphoric) A brief description of the specific gesture
     4. 'slide_design': Object with 'title', 'type' ("text" or "list"), and 'content' or 'items'
@@ -193,7 +203,9 @@ export interface VideoGenerationResult {
  * - Beat: Generate natural speaking movements based on spoken text only
  * - Deictic/Iconic/Metaphoric: Include detailed gesture description in prompt
  * 
- * Video duration is determined by the model itself.
+ * NOTE: When using reference images, Veo API only supports 8-second videos.
+ * See: https://ai.google.dev/gemini-api/docs/video#limitations
+ * "8 seconds only when using reference images"
  */
 export const generateActionVideo = async (
   gestureType: GestureTypeValue,
@@ -202,6 +214,15 @@ export const generateActionVideo = async (
   referenceImageBase64: string
 ): Promise<VideoGenerationResult> => {
   const ai = getAIClient();
+
+  // Veo API 视频时长限制：
+  // - 纯文本生成：支持 4秒、6秒、8秒
+  // - 使用参考图片(reference images)：只支持 8秒
+  // 参考：https://ai.google.dev/gemini-api/docs/video#limitations
+  // "8 seconds only when using reference images"
+  
+  // 由于我们使用角色定妆照作为参考图片，所以只能使用 8 秒
+  const videoDuration = 8;
 
   // 根据手势类型构建不同的提示词
   let actionPrompt: string;
@@ -217,6 +238,7 @@ export const generateActionVideo = async (
       - Natural head movements and expressions
       - Body language appropriate for conversational speaking
       - No exaggerated or specific gestures, just natural speaking motion
+      - The motion should last for the full ${videoDuration} seconds
     `.trim();
   } else {
     // Deictic/Iconic/Metaphoric 手势：包含具体的手势描述
@@ -225,6 +247,7 @@ export const generateActionVideo = async (
       The person is saying: "${spokenText}"
       
       Perform this specific gesture while speaking naturally.
+      The motion should last for the full ${videoDuration} seconds.
     `.trim();
   }
 
@@ -245,8 +268,11 @@ export const generateActionVideo = async (
   const logText = gestureType === 'beat' 
     ? spokenText.substring(0, 50) 
     : (gestureDescription?.substring(0, 50) || spokenText.substring(0, 50));
-  console.log(`[Veo] Starting ${gestureType} gesture video for: "${logText}..."`);
+  console.log(`[Veo] Starting ${gestureType} gesture video (${videoDuration}s) for: "${logText}..."`);
 
+  // 将同一张图片同时设置为首帧和尾帧，确保视频首尾一致
+  // 参考文档: https://ai.google.dev/gemini-api/docs/video
+  // Frame-specific generation: Generate a video by specifying the first and last frames.
   let operation = await ai.models.generateVideos({
     model: 'veo-3.1-fast-generate-preview',
     prompt: prompt,
@@ -257,8 +283,13 @@ export const generateActionVideo = async (
     config: {
       numberOfVideos: 1,
       resolution: '720p',
-      aspectRatio: '9:16' // Match the character image aspect ratio
-      // 不指定 durationSeconds，让模型自己决定时长
+      aspectRatio: '9:16', // Match the character image aspect ratio
+      durationSeconds: videoDuration, // 指定视频时长
+      // 设置尾帧为同一张图片，确保视频首尾一致（角色回到初始姿势）
+      lastFrame: {
+        imageBytes: referenceImageBase64,
+        mimeType: 'image/png'
+      }
     }
   });
 

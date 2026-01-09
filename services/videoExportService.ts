@@ -204,14 +204,24 @@ export async function exportComposedVideo(
     }
 
     // 渲染帧
+    // 使用 TTS 和视频时长的较大值，确保两者都能播放完成
+    const actualVideoDuration = videoDuration || 0;
+    const segmentDuration = Math.max(ttsDuration, actualVideoDuration);
+    const segmentDurationMs = segmentDuration * 1000;
     const startTime = performance.now();
-    const segmentDurationMs = ttsDuration * 1000; // 以TTS时长为准
+    
+    console.log(`[Export] Segment ${i + 1}: TTS=${ttsDuration.toFixed(2)}s, Video=${actualVideoDuration.toFixed(2)}s, Using=${segmentDuration.toFixed(2)}s`);
 
     await new Promise<void>((resolve) => {
       const renderFrame = () => {
         const elapsed = performance.now() - startTime;
         
-        if (elapsed < segmentDurationMs && !ttsAudio.ended) {
+        // 使用 max(TTS, 视频) 时长作为段落时长
+        const ttsFinished = ttsAudio.ended || elapsed >= ttsDuration * 1000;
+        const videoFinished = !hasVideo || !video || video.ended || elapsed >= actualVideoDuration * 1000;
+        const segmentFinished = elapsed >= segmentDurationMs;
+        
+        if (!segmentFinished) {
           // 清空画布
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -220,7 +230,7 @@ export async function exportComposedVideo(
             // 绘制视频帧
             drawVideoFrame(ctx, video, canvas.width, canvas.height);
           } else {
-            // 绘制静态角色图片
+            // 视频已结束或无视频，绘制静态角色图片
             drawImage(ctx, characterImage, canvas.width, canvas.height);
           }
           
@@ -241,7 +251,7 @@ export async function exportComposedVideo(
       renderFrame();
     });
 
-    currentTime += ttsDuration;
+    currentTime += segmentDuration;
   }
 
   onProgress?.({ stage: 'encoding', progress: 90 });
