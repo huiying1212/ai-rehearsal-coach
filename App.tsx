@@ -105,9 +105,58 @@ export default function App() {
 
   // Update a specific segment's text
   const handleUpdateSegmentText = (id: string, field: 'spokenText' | 'gestureDescription', value: string) => {
-    setSegments(prev => prev.map(seg => 
-      seg.id === id ? { ...seg, [field]: value } : seg
-    ));
+    setSegments(prev => prev.map(seg => {
+      if (seg.id !== id) return seg;
+      
+      // 如果修改了台词，需要重置音频和视频状态
+      if (field === 'spokenText' && value !== seg.spokenText) {
+        return { 
+          ...seg, 
+          [field]: value,
+          audioStatus: SegmentStatus.IDLE,
+          audioUrl: undefined,
+          audioDuration: undefined,
+          videoStatus: seg.gestureType !== GestureType.NONE ? SegmentStatus.IDLE : SegmentStatus.COMPLETED,
+          videoUrl: undefined,
+          videoDuration: undefined
+        };
+      }
+      
+      return { ...seg, [field]: value };
+    }));
+  };
+
+  // Regenerate audio for a single segment
+  const handleRegenerateAudio = async (segmentId: string) => {
+    const segment = segments.find(s => s.id === segmentId);
+    if (!segment) return;
+
+    updateSegmentStatus(segmentId, 'audioStatus', SegmentStatus.GENERATING);
+    
+    try {
+      const audioUrl = await generateSpeech(segment.spokenText);
+      const audioDuration = await getAudioDuration(audioUrl);
+      
+      console.log(`[App] Audio regenerated for ${segmentId}: ${audioDuration.toFixed(2)}s`);
+      
+      setSegments(prev => prev.map(s => 
+        s.id === segmentId 
+          ? { 
+              ...s, 
+              audioStatus: SegmentStatus.COMPLETED, 
+              audioUrl, 
+              audioDuration,
+              // 如果音频重新生成了，视频也需要重新生成
+              videoStatus: s.gestureType !== GestureType.NONE ? SegmentStatus.IDLE : SegmentStatus.COMPLETED,
+              videoUrl: undefined,
+              videoDuration: undefined
+            } 
+          : s
+      ));
+    } catch (e) {
+      console.error(`Audio regeneration failed for ${segmentId}`, e);
+      updateSegmentStatus(segmentId, 'audioStatus', SegmentStatus.ERROR);
+    }
   };
 
   // Update a specific segment's gesture type
@@ -164,11 +213,25 @@ export default function App() {
   };
 
   const generateMediaForSegments = async (currentSegments: ScriptSegment[], referenceImage: string | null) => {
-    // 1. Generate Audio (Parallel) - 获取音频时长用于指定视频时长
-    // 存储每个段落的音频信息，用于后续视频生成
+    // 1. Generate Audio (Parallel) - 只为需要生成音频的段落生成
+    // 跳过已经成功生成音频的段落
     const audioResults: Map<string, { audioUrl: string; audioDuration: number }> = new Map();
     
-    const audioPromises = currentSegments.map(async (seg) => {
+    // 先收集已有的音频信息
+    currentSegments.forEach(seg => {
+      if (seg.audioStatus === SegmentStatus.COMPLETED && seg.audioUrl && seg.audioDuration) {
+        audioResults.set(seg.id, { audioUrl: seg.audioUrl, audioDuration: seg.audioDuration });
+      }
+    });
+    
+    // 过滤出需要生成音频的段落
+    const segmentsNeedingAudio = currentSegments.filter(
+      seg => seg.audioStatus !== SegmentStatus.COMPLETED || !seg.audioUrl
+    );
+    
+    console.log(`[App] ${segmentsNeedingAudio.length} segments need audio generation, ${currentSegments.length - segmentsNeedingAudio.length} already have audio`);
+    
+    const audioPromises = segmentsNeedingAudio.map(async (seg) => {
       try {
         updateSegmentStatus(seg.id, 'audioStatus', SegmentStatus.GENERATING);
         const audioUrl = await generateSpeech(seg.spokenText);
@@ -212,26 +275,44 @@ export default function App() {
     }
 
     if (canGenVideo && referenceImage) {
-      // 过滤出需要生成视频的段落（非 none 手势类型）
-      const segmentsNeedingVideo = currentSegments.filter(seg => seg.gestureType !== GestureType.NONE);
+      // 过滤出需要生成视频的段落：
+      // 1. 非 none 手势类型
+      // 2. 视频状态不是 COMPLETED（跳过已成功生成的）
+      const segmentsNeedingVideo = currentSegments.filter(
+        seg => seg.gestureType !== GestureType.NONE && 
+               seg.videoStatus !== SegmentStatus.COMPLETED
+      );
+      
+      console.log(`[App] ${segmentsNeedingVideo.length} segments need video generation, ${currentSegments.filter(s => s.videoStatus === SegmentStatus.COMPLETED).length} already have video`);
       
       for (const seg of segmentsNeedingVideo) {
         try {
           updateSegmentStatus(seg.id, 'videoStatus', SegmentStatus.GENERATING);
           
-          // 获取该段落的音频时长（用于日志）
+          // 获取该段落的音频时长
           const audioInfo = audioResults.get(seg.id);
           const audioDuration = audioInfo?.audioDuration;
           
           // 注意：使用参考图片时，Veo API 只支持 8 秒视频
           // https://ai.google.dev/gemini-api/docs/video#limitations
-          if (audioDuration) {
-            if (audioDuration > 8) {
-              console.warn(`[App] ⚠️ Segment ${seg.id} audio is ${audioDuration.toFixed(2)}s (>8s), but video is fixed at 8s. Consider splitting this segment.`);
-            } else {
-              console.log(`[App] Segment ${seg.id} audio is ${audioDuration.toFixed(2)}s, video will be 8s (fixed when using reference image)`);
-            }
+          // 如果音频超过8秒，跳过视频生成，让用户修改段落
+          if (audioDuration && audioDuration > 8) {
+            console.warn(`[App] ⚠️ Segment ${seg.id} audio is ${audioDuration.toFixed(2)}s (>8s). Skipping video generation.`);
+            console.warn(`[App] 💡 Please go back to editing mode and split this segment into shorter parts.`);
+            
+            // 标记为错误状态，提示用户需要修改
+            setSegments(prev => prev.map(s => 
+              s.id === seg.id 
+                ? { 
+                    ...s, 
+                    videoStatus: SegmentStatus.ERROR,
+                  } 
+                : s
+            ));
+            continue; // 跳过这个段落，继续处理下一个
           }
+          
+          console.log(`[App] Segment ${seg.id} audio is ${audioDuration?.toFixed(2) || 'unknown'}s, video will be 8s`);
           
           // 根据手势类型调用视频生成（使用参考图片时固定为8秒）
           const result = await generateActionVideo(
@@ -246,7 +327,7 @@ export default function App() {
           // 获取视频实际时长（可能会因为CORS失败，使用超时保护）
           console.log(`[App] Getting video duration for ${seg.id}...`);
           const videoDuration = await getVideoDuration(result.videoUrl);
-          console.log(`[App] Video duration for ${seg.id}: ${videoDuration}s (target was ${targetDuration?.toFixed(2)}s)`);
+          console.log(`[App] Video duration for ${seg.id}: ${videoDuration}s (audio was ${audioDuration?.toFixed(2)}s)`);
           
           console.log(`[App] Updating segment ${seg.id} status to COMPLETED`);
           setSegments(prev => prev.map(s => 
@@ -597,11 +678,21 @@ export default function App() {
                     {/* Gesture Type & Description - Editable in editing state or when video failed */}
                     {state === 'editing' || seg.videoStatus === SegmentStatus.ERROR ? (
                       <div className="space-y-2">
+                        {/* 如果音频超过8秒，显示警告 */}
+                        {seg.audioDuration && seg.audioDuration > 8 && (
+                          <div className="p-2 bg-red-900/30 border border-red-500/50 rounded-lg text-red-300 text-xs">
+                            <strong>⚠️ 音频时长 {seg.audioDuration.toFixed(1)}秒 超过8秒限制</strong>
+                            <p className="mt-1 opacity-80">
+                              视频API只支持8秒，请缩短此段落的台词或拆分成多个段落。
+                            </p>
+                          </div>
+                        )}
+                        
                         <label className="text-xs text-gray-500 mb-1 block flex items-center">
                           <Hand className="w-3 h-3 mr-1" />
                           Gesture Type
-                          {seg.videoStatus === SegmentStatus.ERROR && (
-                            <span className="ml-2 text-red-400">(Video generation failed - edit and regenerate)</span>
+                          {seg.videoStatus === SegmentStatus.ERROR && seg.audioDuration && seg.audioDuration <= 8 && (
+                            <span className="ml-2 text-red-400">(视频生成失败 - 请编辑后重试)</span>
                           )}
                         </label>
                         <select
@@ -622,18 +713,89 @@ export default function App() {
                             <label className="text-xs text-gray-500 mb-1 block flex items-center">
                               <Video className="w-3 h-3 mr-1" />
                               Gesture Description (具体手势描述)
-                            </label>
-                            <textarea
+                        </label>
+                        <textarea
                               value={seg.gestureDescription || ''}
                               onChange={(e) => handleUpdateSegmentText(seg.id, 'gestureDescription', e.target.value)}
                               placeholder="描述具体的手势动作，如：双手向外展开表示范围..."
-                              className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2 text-sm text-indigo-300 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                              rows={2}
-                            />
+                          className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2 text-sm text-indigo-300 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          rows={2}
+                        />
                           </div>
                         )}
                         
-                        {seg.videoStatus === SegmentStatus.ERROR && seg.gestureType !== GestureType.NONE && (
+                        {/* 编辑模式下的单独重新生成按钮 */}
+                        {state === 'editing' && (
+                          <div className="mt-3 pt-3 border-t border-gray-700 space-y-2">
+                            {/* 显示当前状态 */}
+                            {seg.audioDuration && (
+                              <div className={`text-xs ${seg.audioDuration > 8 ? 'text-red-400' : 'text-gray-400'}`}>
+                                当前音频时长: {seg.audioDuration.toFixed(1)}s 
+                                {seg.audioDuration > 8 && ' ⚠️ 超过8秒限制'}
+                              </div>
+                            )}
+                            
+                            {/* 重新生成音频按钮 */}
+                            {(seg.audioStatus !== SegmentStatus.COMPLETED || !seg.audioUrl) && (
+                              <button
+                                onClick={() => handleRegenerateAudio(seg.id)}
+                                disabled={seg.audioStatus === SegmentStatus.GENERATING}
+                                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-all"
+                              >
+                                {seg.audioStatus === SegmentStatus.GENERATING ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                    Generating Audio...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Mic className="w-4 h-4 mr-2" />
+                                    Generate Audio
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            
+                            {/* 重新生成视频按钮 - 仅当音频已完成且时长<=8秒 */}
+                            {seg.gestureType !== GestureType.NONE && 
+                             seg.audioStatus === SegmentStatus.COMPLETED &&
+                             seg.audioDuration && seg.audioDuration <= 8 &&
+                             seg.videoStatus !== SegmentStatus.COMPLETED && (
+                              <button
+                                onClick={() => handleRegenerateVideo(seg.id)}
+                                disabled={seg.videoStatus === SegmentStatus.GENERATING || !characterImageBase64}
+                                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-all"
+                              >
+                                {seg.videoStatus === SegmentStatus.GENERATING ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                    Generating Video...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Video className="w-4 h-4 mr-2" />
+                                    Generate Video
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            
+                            {/* 已完成状态 */}
+                            {seg.audioStatus === SegmentStatus.COMPLETED && 
+                             (seg.gestureType === GestureType.NONE || seg.videoStatus === SegmentStatus.COMPLETED) && (
+                              <div className="text-xs text-green-400 flex items-center">
+                                <Check className="w-3 h-3 mr-1" />
+                                已完成生成
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* ready 状态下的重新生成按钮（视频失败时） */}
+                        {state === 'ready' && 
+                         seg.videoStatus === SegmentStatus.ERROR && 
+                         seg.gestureType !== GestureType.NONE && 
+                         (!seg.audioDuration || seg.audioDuration <= 8) && (
                           <button
                             onClick={() => handleRegenerateVideo(seg.id)}
                             disabled={seg.videoStatus === SegmentStatus.GENERATING || !characterImageBase64}
@@ -732,6 +894,28 @@ export default function App() {
                   >
                     <Check className="w-5 h-5 mr-2" />
                     Confirm & Generate Media
+                  </button>
+                </div>
+              )}
+              
+              {/* Back to Edit Button - Show in ready state */}
+              {state === 'ready' && (
+                <div className="p-4 border-t border-gray-700 bg-gray-800/50 space-y-3">
+                  {/* 检查是否有视频生成失败的段落 */}
+                  {segments.some(s => s.videoStatus === SegmentStatus.ERROR) && (
+                    <div className="p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg text-amber-200 text-sm mb-3">
+                      <strong>⚠️ 部分段落视频生成失败</strong>
+                      <p className="mt-1 opacity-80">
+                        请点击下方按钮返回编辑模式，修改超时的段落后重新生成。
+                      </p>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setState('editing')}
+                    className="w-full bg-amber-600 hover:bg-amber-500 text-white py-2.5 rounded-xl font-medium flex items-center justify-center transition-all"
+                  >
+                    <Edit3 className="w-4 h-4 mr-2" />
+                    Back to Edit Mode
                   </button>
                 </div>
               )}
