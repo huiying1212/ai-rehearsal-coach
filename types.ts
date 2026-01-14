@@ -19,7 +19,6 @@ export interface ScriptSegment {
   spokenText: string;
   gestureType: GestureType;
   gestureDescription?: string; // 仅当 gestureType 为 deictic/iconic/metaphoric 时有值
-  slideDesign?: SlideDesign;
   audioStatus: SegmentStatus;
   videoStatus: SegmentStatus;
   audioUrl?: string; // Blob URL for audio
@@ -36,26 +35,14 @@ export interface RehearsalState {
   status: 'input' | 'scripting' | 'generating_character' | 'editing' | 'generating_media' | 'ready';
 }
 
-export interface SlideDesign {
-  title: string;
-  type: 'text' | 'list';
-  content?: string;
-  items?: string[];
-}
-
 export interface GeminiScriptResponse {
   script: Array<{
     spoken_text: string;
     gesture_type: 'none' | 'beat' | 'deictic' | 'iconic' | 'metaphoric';
     gesture_description?: string; // 仅当 gesture_type 为 deictic/iconic/metaphoric 时存在
-    slide_design: {
-      title: string;
-      type: 'text' | 'list';
-      content?: string;
-      items?: string[];
-    };
   }>;
   character_description: string;
+  character_personality: string; // 角色的性格、动作风格、能量水平等行为特征
 }
 
 // Character image generation status

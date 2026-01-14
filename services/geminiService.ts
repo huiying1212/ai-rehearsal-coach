@@ -23,12 +23,12 @@ export const generateRehearsalScript = async (scenario: string) => {
     
     **CRITICAL SEGMENT LENGTH RULES:**
     - Each video segment is FIXED at 8 seconds (Veo API limitation with reference images)
-    - Each 'spoken_text' should be 1-2 short sentences that can be spoken in 6-8 seconds
-    - English: approximately 15-25 words per segment
-    - Chinese: approximately 20-40 characters per segment
+    - Each 'spoken_text' should be 1 short sentence or phrase that can be spoken in 4-5 seconds
+    - English: approximately 10-15 words per segment (shorter is better)
+    - Chinese: approximately 15-25 characters per segment (shorter is better)
     - If content is longer, split it into multiple segments
-    - Aim for 5-15 segments total for a typical presentation
-    - Leave ~1-2 seconds buffer at the end for the character to return to neutral pose
+    - Aim for 3-5 segments total for a typical presentation
+    - Leave ~2-3 seconds buffer at the end for the character to return to neutral pose
     
     For each segment, analyze what gesture category is most appropriate:
     
@@ -47,15 +47,20 @@ export const generateRehearsalScript = async (scenario: string) => {
     - For "beat" and "none" gestures, do NOT include 'gesture_description'
     
     For each segment, provide:
-    1. 'spoken_text': What the speaker should say. **Keep it to ONE short sentence (15-25 words max)**.
+    1. 'spoken_text': What the speaker should say. **Keep it to ONE short sentence or phrase (10-15 words max for English, 15-25 characters max for Chinese)**.
     2. 'gesture_type': One of "none", "beat", "deictic", "iconic", "metaphoric"
     3. 'gesture_description': (ONLY for deictic/iconic/metaphoric) A brief description of the specific gesture
-    4. 'slide_design': Object with 'title', 'type' ("text" or "list"), and 'content' or 'items'
     
-    Additionally, provide a 'character_description' field that describes the speaker's appearance.
-    Keep it brief, e.g.: "A confident woman in a navy blazer with shoulder-length dark hair"
+    Additionally, provide:
+    - 'character_description': Describes the speaker's appearance (brief, e.g., "A confident woman in a navy blazer with shoulder-length dark hair")
+    - 'character_personality': Describes the character's personality, movement style, energy level, and behavioral traits that should guide their actions
+      Examples:
+      * "Energetic and enthusiastic, moves with quick, animated gestures. Confident and engaging."
+      * "Calm and measured, moves slowly and deliberately. Wise and thoughtful demeanor."
+      * "Young and nervous, fidgets occasionally. Tentative but earnest in delivery."
+      * "Bold and commanding, uses expansive gestures. Authoritative presence."
     
-    Return a JSON object with 'script' array and 'character_description' string.
+    Return a JSON object with 'script' array, 'character_description' string, and 'character_personality' string.
   `;
 
   const response = await ai.models.generateContent({
@@ -76,24 +81,15 @@ export const generateRehearsalScript = async (scenario: string) => {
                   type: Type.STRING,
                   enum: ['none', 'beat', 'deictic', 'iconic', 'metaphoric']
                 },
-                gesture_description: { type: Type.STRING },
-                slide_design: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    type: { type: Type.STRING, enum: ['text', 'list'] },
-                    content: { type: Type.STRING },
-                    items: { type: Type.ARRAY, items: { type: Type.STRING } }
-                  },
-                  required: ['title', 'type']
-                }
+                gesture_description: { type: Type.STRING }
               },
-              required: ['spoken_text', 'gesture_type', 'slide_design']
+              required: ['spoken_text', 'gesture_type']
             }
           },
-          character_description: { type: Type.STRING }
+          character_description: { type: Type.STRING },
+          character_personality: { type: Type.STRING }
         },
-        required: ['script', 'character_description']
+        required: ['script', 'character_description', 'character_personality']
       }
     }
   });
@@ -115,6 +111,7 @@ export const generateRehearsalScript = async (scenario: string) => {
 /**
  * Generate a character "costume photo" (定妆照) based on the character description.
  * Uses Gemini's native image generation to create a full-body shot on a pure white background.
+ * The character can be a human, animal, cartoon character, or any other form.
  */
 export const generateCharacterImage = async (characterDescription: string): Promise<string> => {
   const ai = getAIClient();
@@ -123,12 +120,12 @@ export const generateCharacterImage = async (characterDescription: string): Prom
   const prompt = `
     Generate an image of: ${characterDescription}.
     
-    Full body shot from head to toe.
-    Standing upright in a neutral pose with arms relaxed at sides.
-    Front view, eye-level perspective, looking directly at camera.
+    Full body shot showing the complete character from head to toe.
+    Standing upright in a neutral pose (arms relaxed at sides if applicable).
+    Front view, eye-level perspective, facing directly forward.
     Isolated on pure white background, no props, no shadows, no other objects.
     Neutral, even lighting with no dramatic shadows.
-    Professional photography style, high resolution, clean and crisp.
+    Professional reference image style, high resolution, clean and crisp.
   `.trim();
 
   // Use Gemini's native image generation capability
@@ -200,7 +197,7 @@ export interface VideoGenerationResult {
 /**
  * Generate action video using the character reference image as both start and end frame.
  * Video generation differs based on gesture type:
- * - Beat: Generate natural speaking movements based on spoken text only
+ * - Beat: Generate natural actions based on spoken text and character traits
  * - Deictic/Iconic/Metaphoric: Include detailed gesture description in prompt
  * 
  * NOTE: When using reference images, Veo API only supports 8-second videos.
@@ -211,7 +208,9 @@ export const generateActionVideo = async (
   gestureType: GestureTypeValue,
   spokenText: string,
   gestureDescription: string | undefined, 
-  referenceImageBase64: string
+  referenceImageBase64: string,
+  scenario?: string,
+  characterPersonality?: string
 ): Promise<VideoGenerationResult> => {
   const ai = getAIClient();
 
@@ -227,27 +226,30 @@ export const generateActionVideo = async (
   // 根据手势类型构建不同的提示词
   let actionPrompt: string;
   
+  // 添加场景上下文（如果提供）
+  const contextPrefix = scenario ? `Context: This is for a ${scenario}.\n` : '';
+  
+  // 添加角色性格描述（如果提供）
+  const personalityPrefix = characterPersonality 
+    ? `Character personality and movement style: ${characterPersonality}\n` 
+    : '';
+  
   if (gestureType === 'beat') {
-    // Beat 手势：根据说话内容自然生成动作，不包含具体手势描述
+    // Beat 手势：根据说话内容和角色特点自然生成动作，不包含具体手势描述
     actionPrompt = `
-      A person speaking naturally with rhythmic beat gestures.
-      They are saying: "${spokenText}"
+      ${contextPrefix}${personalityPrefix}A character performing actions naturally based on what they are saying: "${spokenText}"
       
-      Generate natural speaking movements:
-      - Subtle hand movements that emphasize speech rhythm
-      - Natural head movements and expressions
-      - Body language appropriate for conversational speaking
-      - No exaggerated or specific gestures, just natural speaking motion
-      - The motion should last for the full ${videoDuration} seconds
+      The actions should match the character's personality and the context of what they are saying.
+      The character can move around slightly (small steps, turning, shifting weight, or equivalent movements) if it fits the performance.
     `.trim();
   } else {
     // Deictic/Iconic/Metaphoric 手势：包含具体的手势描述
     actionPrompt = `
-      ${gestureDescription || 'Natural gesture'}.
-      The person is saying: "${spokenText}"
+      ${contextPrefix}${personalityPrefix}${gestureDescription || 'Natural gesture'}.
+      The character is saying: "${spokenText}"
       
       Perform this specific gesture while speaking naturally.
-      The motion should last for the full ${videoDuration} seconds.
+      The character can move around slightly (small steps, turning, shifting weight, or equivalent movements) if it fits the performance.
     `.trim();
   }
 
@@ -257,11 +259,12 @@ export const generateActionVideo = async (
     
     Camera and scene requirements:
     - Static camera, no zoom, no panning, no camera movement
-    - Character remains centered in frame
+    - Character can move within the frame but should remain mostly centered
     - Maintain consistent scale throughout
-    - Pure white background, minimal background movement
+    - Pure white background
     - Smooth, natural human movement
-    - Professional demonstration style
+    - Actions should match the character's personality, traits, and performance context
+    - If the context is theatrical (stage play, drama, performance), allow more expressive and exaggerated movements
     - The video should start and end with the character in the same pose as the reference image
   `.trim();
 

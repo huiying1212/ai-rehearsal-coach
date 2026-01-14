@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X, Trash2, Plus, Presentation, Hand } from 'lucide-react';
+import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X, Trash2, Plus, Hand } from 'lucide-react';
 import { generateRehearsalScript, generateSpeech, generateActionVideo, generateCharacterImage, base64ToDataUrl, GestureTypeValue } from './services/geminiService';
-import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus, SlideDesign, GestureType } from './types';
+import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus, GestureType } from './types';
 import Player from './components/Player';
 
 // Declare global for the key selection
@@ -23,6 +23,7 @@ export default function App() {
   // New state for character image
   const [characterImageBase64, setCharacterImageBase64] = useState<string | null>(null);
   const [characterDescription, setCharacterDescription] = useState<string | null>(null);
+  const [characterPersonality, setCharacterPersonality] = useState<string | null>(null);
   const [characterStatus, setCharacterStatus] = useState<CharacterStatus>(CharacterStatus.IDLE);
 
   const handleGenerateScript = async () => {
@@ -32,6 +33,7 @@ export default function App() {
     setError(null);
     setCharacterImageBase64(null);
     setCharacterDescription(null);
+    setCharacterPersonality(null);
     setCharacterStatus(CharacterStatus.IDLE);
 
     try {
@@ -43,18 +45,13 @@ export default function App() {
         spokenText: item.spoken_text,
         gestureType: item.gesture_type as GestureType,
         gestureDescription: item.gesture_description, // 仅对 deictic/iconic/metaphoric 有值
-        slideDesign: {
-          title: item.slide_design.title,
-          type: item.slide_design.type,
-          content: item.slide_design.content,
-          items: item.slide_design.items,
-        },
         audioStatus: SegmentStatus.IDLE,
         videoStatus: item.gesture_type === 'none' ? SegmentStatus.COMPLETED : SegmentStatus.IDLE, // 无手势的段落不需要生成视频
       }));
 
       setSegments(newSegments);
       setCharacterDescription(result.character_description);
+      setCharacterPersonality(result.character_personality);
       
       // Step 2: Generate character image (定妆照)
       setState('generating_character');
@@ -194,23 +191,12 @@ export default function App() {
       spokenText: '',
       gestureType: GestureType.BEAT, // 默认使用节拍手势
       gestureDescription: undefined,
-      slideDesign: {
-        title: 'New Slide',
-        type: 'text',
-        content: '',
-      },
       audioStatus: SegmentStatus.IDLE,
       videoStatus: SegmentStatus.IDLE,
     };
     setSegments(prev => [...prev, newSegment]);
   };
 
-  // Update a specific segment's slide design
-  const handleUpdateSlideDesign = (id: string, updates: Partial<SlideDesign>) => {
-    setSegments(prev => prev.map(seg => 
-      seg.id === id ? { ...seg, slideDesign: { ...seg.slideDesign, ...updates } } : seg
-    ));
-  };
 
   const generateMediaForSegments = async (currentSegments: ScriptSegment[], referenceImage: string | null) => {
     // 1. Generate Audio (Parallel) - 只为需要生成音频的段落生成
@@ -319,7 +305,9 @@ export default function App() {
             seg.gestureType as GestureTypeValue,
             seg.spokenText,
             seg.gestureDescription,
-            referenceImage
+            referenceImage,
+            prompt, // 传入原始用户场景以提供上下文
+            characterPersonality || undefined // 传入角色性格以指导动作风格
           );
           
           console.log(`[App] Video generated for ${seg.id}, URL: ${result.videoUrl.substring(0, 80)}...`);
@@ -435,7 +423,9 @@ export default function App() {
         segment.gestureType as GestureTypeValue,
         segment.spokenText,
         segment.gestureDescription,
-        characterImageBase64
+        characterImageBase64,
+        prompt, // 传入原始用户场景以提供上下文
+        characterPersonality || undefined // 传入角色性格以指导动作风格
       );
       
       // 获取视频实际时长
@@ -582,6 +572,34 @@ export default function App() {
                       <p className="text-sm text-gray-400 italic">
                         "{characterDescription}"
                       </p>
+                    )}
+                  </div>
+                )}
+                
+                {/* Character Personality - Editable in editing state */}
+                {characterPersonality !== null && (
+                  <div className="mb-4">
+                    {state === 'editing' ? (
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block flex items-center">
+                          <Hand className="w-3 h-3 mr-1" />
+                          Character Personality & Movement Style
+                        </label>
+                        <textarea
+                          value={characterPersonality}
+                          onChange={(e) => setCharacterPersonality(e.target.value)}
+                          className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-sm text-gray-300 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          rows={2}
+                          placeholder="E.g., Energetic and enthusiastic, moves with quick gestures. Confident and engaging."
+                        />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Personality & Style:</label>
+                        <p className="text-sm text-gray-400 italic">
+                          "{characterPersonality}"
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
@@ -735,26 +753,29 @@ export default function App() {
                               </div>
                             )}
                             
-                            {/* 重新生成音频按钮 */}
-                            {(seg.audioStatus !== SegmentStatus.COMPLETED || !seg.audioUrl) && (
-                              <button
-                                onClick={() => handleRegenerateAudio(seg.id)}
-                                disabled={seg.audioStatus === SegmentStatus.GENERATING}
-                                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-all"
-                              >
-                                {seg.audioStatus === SegmentStatus.GENERATING ? (
-                                  <>
-                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                    Generating Audio...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Mic className="w-4 h-4 mr-2" />
-                                    Generate Audio
-                                  </>
-                                )}
-                              </button>
-                            )}
+                            {/* 生成/重新生成音频按钮 - 始终显示，让用户可以修改文本后重新生成 */}
+                            <button
+                              onClick={() => handleRegenerateAudio(seg.id)}
+                              disabled={seg.audioStatus === SegmentStatus.GENERATING}
+                              className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-all"
+                            >
+                              {seg.audioStatus === SegmentStatus.GENERATING ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                  Generating Audio...
+                                </>
+                              ) : seg.audioStatus === SegmentStatus.COMPLETED ? (
+                                <>
+                                  <RefreshCw className="w-4 h-4 mr-2" />
+                                  Regenerate Audio
+                                </>
+                              ) : (
+                                <>
+                                  <Mic className="w-4 h-4 mr-2" />
+                                  Generate Audio
+                                </>
+                              )}
+                            </button>
                             
                             {/* 重新生成视频按钮 - 仅当音频已完成且时长<=8秒 */}
                             {seg.gestureType !== GestureType.NONE && 
@@ -782,7 +803,8 @@ export default function App() {
                             
                             {/* 已完成状态 */}
                             {seg.audioStatus === SegmentStatus.COMPLETED && 
-                             (seg.gestureType === GestureType.NONE || seg.videoStatus === SegmentStatus.COMPLETED) && (
+                             (seg.gestureType === GestureType.NONE || seg.videoStatus === SegmentStatus.COMPLETED) && 
+                             seg.audioDuration && seg.audioDuration <= 8 && (
                               <div className="text-xs text-green-400 flex items-center">
                                 <Check className="w-3 h-3 mr-1" />
                                 已完成生成
@@ -822,56 +844,6 @@ export default function App() {
                         {seg.gestureDescription && (
                           <span className="ml-2 text-indigo-300">: {seg.gestureDescription}</span>
                         )}
-                      </div>
-                    )}
-                    
-                    {/* Slide Design - Editable in editing state */}
-                    {state === 'editing' ? (
-                      <div className="mt-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                        <label className="text-xs text-gray-500 mb-2 block flex items-center">
-                          <Presentation className="w-3 h-3 mr-1" />
-                          Slide Design
-                        </label>
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            value={seg.slideDesign.title}
-                            onChange={(e) => handleUpdateSlideDesign(seg.id, { title: e.target.value })}
-                            placeholder="Slide Title"
-                            className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                          />
-                          <select
-                            value={seg.slideDesign.type}
-                            onChange={(e) => handleUpdateSlideDesign(seg.id, { type: e.target.value as 'text' | 'list' })}
-                            className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                          >
-                            <option value="text">Text</option>
-                            <option value="list">List</option>
-                          </select>
-                          {seg.slideDesign.type === 'text' && (
-                            <textarea
-                              value={seg.slideDesign.content || ''}
-                              onChange={(e) => handleUpdateSlideDesign(seg.id, { content: e.target.value })}
-                              placeholder="Slide content..."
-                              className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                              rows={2}
-                            />
-                          )}
-                          {seg.slideDesign.type === 'list' && (
-                            <textarea
-                              value={(seg.slideDesign.items || []).join('\n')}
-                              onChange={(e) => handleUpdateSlideDesign(seg.id, { items: e.target.value.split('\n').filter(l => l.trim()) })}
-                              placeholder="One item per line..."
-                              className="w-full bg-gray-900 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                              rows={3}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-2 flex items-center text-xs text-emerald-300 bg-emerald-900/20 px-2 py-1 rounded w-fit">
-                        <Presentation className="w-3 h-3 mr-1" />
-                        Slide: {seg.slideDesign.title} ({seg.slideDesign.type})
                       </div>
                     )}
                   </div>
