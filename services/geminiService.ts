@@ -34,10 +34,10 @@ export const generateRehearsalScript = async (scenario: string) => {
     
     **Gesture Categories:**
     - "none": No gesture needed - speaker maintains neutral posture (use sparingly, only for pauses or transitions)
-    - "beat": Beat gesture - natural rhythmic hand movements that accompany speech (most common, use for general speaking)
-    - "deictic": Deictic/Pointing gesture - pointing to something specific (use when referring to directions, locations, or specific items)
-    - "iconic": Iconic gesture - mimics the shape or action of something concrete (use when describing physical objects, sizes, movements)
-    - "metaphoric": Metaphoric gesture - represents abstract concepts with physical gestures (use when emphasizing key concepts, abstract ideas, emotions)
+    - "beat": Beat gesture - natural rhythmic movements that accompany speech using full body (most common, use for general speaking)
+    - "deictic": Deictic/Pointing gesture - pointing to something specific using arms, hands, or body orientation (use when referring to directions, locations, or specific items)
+    - "iconic": Iconic gesture - mimics the shape or action of something concrete using full-body movements (use when describing physical objects, sizes, movements, actions)
+    - "metaphoric": Metaphoric gesture - represents abstract concepts with physical gestures using expressive body language (use when emphasizing key concepts, abstract ideas, emotions)
     
     **Important Guidelines:**
     - Most segments should use "beat" (natural speaking rhythm)
@@ -45,11 +45,16 @@ export const generateRehearsalScript = async (scenario: string) => {
     - Use "deictic", "iconic", or "metaphoric" when the content is highly visual or emphatic
     - For "deictic", "iconic", or "metaphoric" gestures, you MUST provide a detailed 'gesture_description'
     - For "beat" and "none" gestures, do NOT include 'gesture_description'
+    - When writing gesture_description, encourage FULL-BODY movements (arms, legs, torso, stepping, turning) not just hand gestures
+    - Make gesture descriptions dynamic and vibrant, describing how the whole body should move
     
     For each segment, provide:
     1. 'spoken_text': What the speaker should say. **Keep it to ONE short sentence or phrase (10-15 words max for English, 15-25 characters max for Chinese)**.
     2. 'gesture_type': One of "none", "beat", "deictic", "iconic", "metaphoric"
-    3. 'gesture_description': (ONLY for deictic/iconic/metaphoric) A brief description of the specific gesture
+    3. 'gesture_description': (ONLY for deictic/iconic/metaphoric) A detailed description of the full-body gesture
+       - Include arm/hand movements, body position, leg/foot actions, and overall body engagement
+       - Example: "Steps forward with right foot while sweeping both arms wide, then brings hands together at chest level, engaging whole body"
+       - Example: "Points to the right with extended arm while turning torso and stepping in that direction"
     
     Additionally, provide:
     - 'character_description': Describes the speaker's appearance (brief, e.g., "A confident woman in a navy blazer with shoulder-length dark hair")
@@ -88,7 +93,7 @@ export const generateRehearsalScript = async (scenario: string) => {
           },
           character_description: { type: Type.STRING },
           character_personality: { type: Type.STRING }
-        },
+                  },
         required: ['script', 'character_description', 'character_personality']
       }
     }
@@ -239,8 +244,16 @@ export const generateActionVideo = async (
     actionPrompt = `
       ${contextPrefix}${personalityPrefix}A character performing actions naturally based on what they are saying: "${spokenText}"
       
-      The actions should match the character's personality and the context of what they are saying.
-      The character can move around slightly (small steps, turning, shifting weight, or equivalent movements) if it fits the performance.
+      The character should use FULL-BODY movements including:
+      - Arms and hands expressing the content naturally
+      - Body posture changes (leaning, turning, rotating torso)
+      - Leg movements (stepping, shifting weight, stance changes)
+      - Head movements and facial expressions
+      - Dynamic, vibrant gestures that engage the whole body
+      
+      Encourage active, energetic movements that match the character's personality and speaking style.
+      The character can move freely within the frame - walking, stepping, gesturing expansively.
+      Don't limit movements to just hands and arms - use the entire body to communicate.
     `.trim();
   } else {
     // Deictic/Iconic/Metaphoric 手势：包含具体的手势描述
@@ -248,8 +261,15 @@ export const generateActionVideo = async (
       ${contextPrefix}${personalityPrefix}${gestureDescription || 'Natural gesture'}.
       The character is saying: "${spokenText}"
       
-      Perform this specific gesture while speaking naturally.
-      The character can move around slightly (small steps, turning, shifting weight, or equivalent movements) if it fits the performance.
+      Perform this specific gesture with FULL-BODY engagement:
+      - Use arms, hands, and the entire upper body
+      - Engage legs and feet (stepping, stance changes, weight shifts)
+      - Include torso movements (turning, leaning, rotating)
+      - Add dynamic body language beyond just arm gestures
+      - Make the gesture vibrant and physically expressive
+      
+      The character should move actively and dynamically, using their whole body to express themselves naturally.
+      Don't just move hands - engage legs, torso, and full body in the performance.
     `.trim();
   }
 
@@ -258,14 +278,24 @@ export const generateActionVideo = async (
     ${actionPrompt}
     
     Camera and scene requirements:
-    - Static camera, no zoom, no panning, no camera movement
-    - Character can move within the frame but should remain mostly centered
-    - Maintain consistent scale throughout
-    - Pure white background
-    - Smooth, natural human movement
-    - Actions should match the character's personality, traits, and performance context
-    - If the context is theatrical (stage play, drama, performance), allow more expressive and exaggerated movements
+    - Static camera position, no zoom, no panning, no camera movement
+    - Frame the character so their ENTIRE BODY (head to feet) is ALWAYS visible in the frame
+    - The character can move freely within the frame (walking, stepping, turning)
+    - Allow the character to use the full space while keeping them centered and fully visible
+    - Pure white background with no shadows or props
+    - Smooth, natural, dynamic human movement with full-body engagement
+    
+    Movement style guidelines:
+    - Encourage vibrant, active movements using arms, legs, torso, and whole body
+    - Allow stepping, walking, turning, and full-body gestures
+    - Make movements expressive and dynamic, not just hand/arm gestures
+    - If the character's personality is energetic, use expansive, active movements
+    - If the context is theatrical, allow bold, exaggerated full-body expressions
+    - Ensure all body parts (head, torso, arms, legs, feet) remain visible throughout
+    
+    Frame consistency:
     - The video should start and end with the character in the same pose as the reference image
+    - Keep the entire character visible from head to toe at all times
   `.trim();
 
   const logText = gestureType === 'beat' 
