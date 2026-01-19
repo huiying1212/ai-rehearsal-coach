@@ -35,9 +35,9 @@ export const generateRehearsalScript = async (scenario: string) => {
     **Gesture Categories:**
     - "none": No gesture needed - speaker maintains neutral posture (use sparingly, only for pauses or transitions)
     - "beat": Beat gesture - natural rhythmic movements that accompany speech using full body (most common, use for general speaking)
-    - "deictic": Deictic/Pointing gesture - pointing to something specific using arms, hands, or body orientation (use when referring to directions, locations, or specific items)
-    - "iconic": Iconic gesture - mimics the shape or action of something concrete using full-body movements (use when describing physical objects, sizes, movements, actions)
-    - "metaphoric": Metaphoric gesture - represents abstract concepts with physical gestures using expressive body language (use when emphasizing key concepts, abstract ideas, emotions)
+    - "deictic": Deictic/Pointing gesture - directing attention to something specific through body orientation and spatial reference (use when referring to directions, locations, or specific items)
+    - "iconic": Iconic gesture - physically embodying or representing the essence of something concrete (use when describing physical objects, sizes, movements, actions)
+    - "metaphoric": Metaphoric gesture - physically manifesting abstract concepts through expressive full-body language (use when emphasizing key concepts, abstract ideas, emotions)
     
     **Important Guidelines:**
     - Most segments should use "beat" (natural speaking rhythm)
@@ -45,25 +45,53 @@ export const generateRehearsalScript = async (scenario: string) => {
     - Use "deictic", "iconic", or "metaphoric" when the content is highly visual or emphatic
     - For "deictic", "iconic", or "metaphoric" gestures, you MUST provide a detailed 'gesture_description'
     - For "beat" and "none" gestures, do NOT include 'gesture_description'
-    - When writing gesture_description, encourage FULL-BODY movements (arms, legs, torso, stepping, turning) not just hand gestures
-    - Make gesture descriptions dynamic and vibrant, describing how the whole body should move
+    - **CRITICAL APPROACH**: Write gesture_description as HIGH-LEVEL EFFECT descriptions, NOT specific limb movements
+    - Describe the FEELING, METAPHOR, or DESIRED VISUAL IMPACT rather than mechanical instructions
+    - This allows the AI video model to use its creative understanding to generate natural, expressive movements
+    - Think: "What effect do I want?" not "Which body parts should move?"
+    - Use experiential language: "feeling the warmth of sunlight", "pushing through resistance", "welcoming embrace"
+    - Use metaphorical language: "carrying heavy burden", "reaching for dreams", "building protective walls"
+    - Use emotional language: "radiating confidence", "shrinking from fear", "expanding with joy"
+    - **ROBOT SAFETY NOTE**: These movements will be executed by ROBOTS with only 4 limbs (2 arms, 2 legs)
+      * The effect-based descriptions should naturally lead to robot-safe movements
+      * Avoid effects that require: leg crossing, rapid spinning, jumping, kneeling, backward walking, or finger gestures
     
     For each segment, provide:
     1. 'spoken_text': What the speaker should say. **Keep it to ONE short sentence or phrase (10-15 words max for English, 15-25 characters max for Chinese)**.
     2. 'gesture_type': One of "none", "beat", "deictic", "iconic", "metaphoric"
-    3. 'gesture_description': (ONLY for deictic/iconic/metaphoric) A detailed description of the full-body gesture
-       - Include arm/hand movements, body position, leg/foot actions, and overall body engagement
-       - Example: "Steps forward with right foot while sweeping both arms wide, then brings hands together at chest level, engaging whole body"
-       - Example: "Points to the right with extended arm while turning torso and stepping in that direction"
+    3. 'gesture_description': (ONLY for deictic/iconic/metaphoric) A HIGH-LEVEL description of the DESIRED EFFECT or FEELING, NOT specific limb movements
+       - Describe WHAT THE GESTURE COMMUNICATES or the EMOTIONAL/VISUAL EFFECT it creates
+       - Let the video model's imagination determine the specific body movements to achieve that effect
+       - Focus on METAPHORICAL, EMOTIONAL, or EXPERIENTIAL descriptions rather than mechanical instructions
+       - Examples of EFFECT-BASED gesture descriptions that leverage the video model's creativity:
+         * "Basking in warm sunlight, absorbing energy and hope from above"
+         * "Pushing through an invisible heavy barrier with determination"
+         * "Being pulled back by doubt and hesitation, resisting forward momentum"
+         * "Welcoming an old friend with open arms and genuine warmth"
+         * "Feeling the weight of responsibility settling on the shoulders"
+         * "Reaching for an impossible dream just beyond grasp"
+         * "Celebrating a hard-won victory with triumphant energy"
+         * "Shrinking away from criticism or harsh judgment"
+         * "Expanding with confidence and claiming the space"
+         * "Radiating warmth and invitation to draw others in"
+         * "Building invisible walls for protection and boundaries"
+         * "Releasing all tension and letting go of burdens"
+         * "Drawing in focus and concentration from the environment"
+         * "Projecting energy and passion outward to inspire"
+       - **ROBOT SAFETY REMINDERS** (the video model should naturally avoid these with effect-based prompts):
+         * The resulting movements should not include leg crossing, rapid spins, jumps, kneeling, backward walking
+         * No finger gestures - only whole limb movements with open/closed hand positions
     
     Additionally, provide:
     - 'character_description': Describes the speaker's appearance (brief, e.g., "A confident woman in a navy blazer with shoulder-length dark hair")
-    - 'character_personality': Describes the character's personality, movement style, energy level, and behavioral traits that should guide their actions
-      Examples:
-      * "Energetic and enthusiastic, moves with quick, animated gestures. Confident and engaging."
-      * "Calm and measured, moves slowly and deliberately. Wise and thoughtful demeanor."
-      * "Young and nervous, fidgets occasionally. Tentative but earnest in delivery."
-      * "Bold and commanding, uses expansive gestures. Authoritative presence."
+    - 'character_personality': Describes the character's personality, movement style, energy level, and behavioral traits that should guide their actions to be VIVID and EXPRESSIVE
+      Examples of personality descriptions that drive compelling movements:
+      * "Explosively energetic and passionate, uses forceful arm sweeps and dynamic weight shifts, torso constantly engaged. Commands attention with full-body intensity."
+      * "Gracefully controlled and elegant, flows between poses with smooth transitions, arms move in arcs, weight shifts are subtle but deliberate. Every movement has purpose."
+      * "Playfully animated and spontaneous, alternates between quick arm gestures and dramatic pauses, takes asymmetric stances, torso sways with rhythm. Unpredictable and charming."
+      * "Powerfully confident and dominant, uses wide stances and overhead arm raises, chest forward posture, movements are large and space-claiming. Radiates authority through physicality."
+      * "Intensely focused and urgent, leans forward frequently, arms punch forward and pull back with tension, quick weight shifts convey drive. Every gesture shows determination."
+      * "Warmly inviting and open, arms sweep outward welcoming, torso opens toward audience, gentle forward steps, movements are rounded and embracing. Physically generous and inclusive."
     
     Return a JSON object with 'script' array, 'character_description' string, and 'character_personality' string.
   `;
@@ -139,6 +167,10 @@ export const generateCharacterImage = async (characterDescription: string): Prom
     contents: prompt,
     config: {
       responseModalities: [Modality.TEXT, Modality.IMAGE],
+      imageConfig: {
+        aspectRatio: '3:4',  // 竖屏 4:3 (宽:高 = 3:4，即高度更大)
+        imageSize: '2K'      // 高分辨率
+      }
     }
   });
 
@@ -245,31 +277,77 @@ export const generateActionVideo = async (
       ${contextPrefix}${personalityPrefix}A character performing actions naturally based on what they are saying: "${spokenText}"
       
       The character should use FULL-BODY movements including:
-      - Arms and hands expressing the content naturally
+      - Arms (as whole limbs) expressing the content naturally
+      - Hands in simple open or closed positions (NO finger gestures)
       - Body posture changes (leaning, turning, rotating torso)
       - Leg movements (stepping, shifting weight, stance changes)
       - Head movements and facial expressions
       - Dynamic, vibrant gestures that engage the whole body
       
-      Encourage active, energetic movements that match the character's personality and speaking style.
+      Make movements VIVID and EXPRESSIVE to convey personality and enhance the message:
+      - Use ASYMMETRIC poses (arms at different heights, weight on one leg) for visual interest
+      - Vary SPEED and INTENSITY (sudden arm raises, slow weight shifts, quick turns)
+      - Create SHAPES with the body (wide stances, arms overhead, torso leaning, diagonal lines)
+      - Use RHYTHM and DYNAMICS (alternate movements, build and release tension)
+      - Match movement QUALITY to emotion (forceful fists for strength, open palms for welcome, quick gestures for excitement)
+      - Engage MULTIPLE body parts simultaneously (arm + torso + leg all moving together creates impact)
+      
       The character can move freely within the frame - walking, stepping, gesturing expansively.
-      Don't limit movements to just hands and arms - use the entire body to communicate.
+      Don't limit movements to just hands and arms - use the ENTIRE BODY to communicate personality and content.
+      
+      ROBOT SAFETY CONSTRAINTS (CRITICAL - these motions are intended for robotic systems):
+      - NO leg crossing or complex leg entanglements
+      - NO rapid spinning or fast rotations (keep turns smooth and controlled, max 180° turn)
+      - NO jumping, hopping, or leaving the ground
+      - NO kneeling, crouching, or sitting down
+      - NO backward walking or unstable movements
+      - NO finger gestures (counting with fingers, pointing with index finger, making shapes with fingers, OK sign, thumbs up, peace sign, heart shape with hands)
+      - NO fine hand articulation or dexterous finger movements
+      - Keep feet planted or move in simple, stable steps (forward, side-to-side)
+      - Maintain balanced, upright posture at all times
+      - Only use LIMB-LEVEL movements: arms (as whole units), legs (as whole units), open/closed hand positions only
+      - Hands can be open (palm flat) or closed (fist), but no individual finger control
+      - All movements must be smooth, controlled, and robotically feasible
+      - Avoid complex multi-joint coordination that would be difficult for robots
     `.trim();
   } else {
-    // Deictic/Iconic/Metaphoric 手势：包含具体的手势描述
+    // Deictic/Iconic/Metaphoric 手势：包含高层次效果描述
     actionPrompt = `
-      ${contextPrefix}${personalityPrefix}${gestureDescription || 'Natural gesture'}.
+      ${contextPrefix}${personalityPrefix}The gesture should embody this feeling/effect: "${gestureDescription || 'Natural expressive gesture'}".
       The character is saying: "${spokenText}"
       
-      Perform this specific gesture with FULL-BODY engagement:
-      - Use arms, hands, and the entire upper body
-      - Engage legs and feet (stepping, stance changes, weight shifts)
-      - Include torso movements (turning, leaning, rotating)
-      - Add dynamic body language beyond just arm gestures
-      - Make the gesture vibrant and physically expressive
+      INTERPRET this high-level description creatively and translate it into FULL-BODY MOVEMENT:
+      - The description provides the DESIRED EFFECT or EMOTIONAL QUALITY, not specific limb instructions
+      - Use your understanding to create movements that authentically express this feeling
+      - Engage the WHOLE BODY: arms, legs, torso, head all work together to convey the effect
+      - Think about how a person would PHYSICALLY EMBODY this feeling or metaphor
+      - Use spatial relationships (up/down, in/out, expanding/contracting) to express the meaning
       
-      The character should move actively and dynamically, using their whole body to express themselves naturally.
-      Don't just move hands - engage legs, torso, and full body in the performance.
+      Make the interpretation VIVID and DRAMATICALLY EXPRESSIVE:
+      - Translate the abstract description into CONCRETE, COMMITTED physical actions
+      - Use STRONG visual choices that clearly communicate the intended effect
+      - Create DYNAMIC SHAPES and movements that embody the feeling
+      - Layer multiple body parts to AMPLIFY the expression
+      - Consider the QUALITY of movement (smooth/sharp, sustained/quick, strong/gentle) that matches the effect
+      - Use the FULL RANGE of motion to make the feeling visible and compelling
+      
+      The character should physically embody the described effect with full commitment and expressiveness.
+      Let the abstract description inspire creative, natural, full-body movements.
+      
+      ROBOT SAFETY CONSTRAINTS (CRITICAL - these motions are intended for robotic systems):
+      - NO leg crossing or complex leg entanglements
+      - NO rapid spinning or fast rotations (keep turns smooth and controlled, max 180° turn)
+      - NO jumping, hopping, or leaving the ground
+      - NO kneeling, crouching, or sitting down
+      - NO backward walking or unstable movements
+      - NO finger gestures (counting with fingers, pointing with index finger, making shapes with fingers, OK sign, thumbs up, peace sign, heart shape with hands)
+      - NO fine hand articulation or dexterous finger movements
+      - Keep feet planted or move in simple, stable steps (forward, side-to-side)
+      - Maintain balanced, upright posture at all times
+      - Only use LIMB-LEVEL movements: arms (as whole units), legs (as whole units), open/closed hand positions only
+      - Hands can be open (palm flat) or closed (fist), but no individual finger control
+      - All movements must be smooth, controlled, and robotically feasible
+      - Avoid complex multi-joint coordination that would be difficult for robots
     `.trim();
   }
 
@@ -285,13 +363,47 @@ export const generateActionVideo = async (
     - Pure white background with no shadows or props
     - Smooth, natural, dynamic human movement with full-body engagement
     
-    Movement style guidelines:
-    - Encourage vibrant, active movements using arms, legs, torso, and whole body
-    - Allow stepping, walking, turning, and full-body gestures
-    - Make movements expressive and dynamic, not just hand/arm gestures
-    - If the character's personality is energetic, use expansive, active movements
-    - If the context is theatrical, allow bold, exaggerated full-body expressions
+    Movement style guidelines - CREATE VIVID, EXPRESSIVE PERFORMANCES:
+    - Movements should be DRAMATICALLY EXPRESSIVE and CHARACTER-DRIVEN, not generic or minimal
+    - Use FULL RANGE OF MOTION: arms fully extended, deep lunges, full torso rotation within safe limits
+    - Create VISUAL INTEREST through asymmetry, varied heights, contrasting shapes
+    - Build DYNAMIC QUALITY: vary intensity (strong/gentle), speed (quick/sustained), direction (up/down/side)
+    - LAYER body parts: arm gesture + torso twist + weight shift all working together amplifies expression
+    - Match MOVEMENT QUALITY to emotion and content:
+      * Power/strength: wide stance, arms overhead or extended forcefully, closed fists, torso lifted
+      * Welcome/openness: arms sweeping outward, open palms, forward steps, torso opening
+      * Urgency/excitement: quick alternating movements, forward lean, rapid weight shifts
+      * Importance/emphasis: slow deliberate gestures, hold positions, strong shapes
+      * Resistance/conflict: pulling back motions, twisting away, closed fists, asymmetric stance
+    - Avoid timid or minimal movements - commit fully to each gesture within robot safety constraints
+    - If the character's personality is energetic, use EXPLOSIVE, expansive movements
+    - If the context is theatrical, allow BOLD, exaggerated full-body expressions
     - Ensure all body parts (head, torso, arms, legs, feet) remain visible throughout
+    
+    CRITICAL ROBOT SAFETY CONSTRAINTS:
+    These movements will be deployed on physical robotic systems. Strictly avoid:
+    - Leg crossing, leg entanglement, or complex leg coordination
+    - Rapid spinning, fast rotations (max 180° smooth turn allowed)
+    - Jumping, hopping, bouncing, or any airborne movements
+    - Kneeling, crouching, squatting, or sitting
+    - Backward walking or unstable backward movements
+    - Loss of balance or tilting beyond safe angles
+    - Movements requiring precise multi-joint coordination
+    - Finger gestures: NO counting with fingers, pointing with index finger, OK sign, thumbs up, peace sign, heart shapes
+    - Individual finger movements or fine hand articulation
+    - Any gesture requiring dexterous finger control
+    
+    ALLOWED safe movements for robots:
+    - Simple forward walking with alternating steps
+    - Side-to-side steps with planted feet
+    - Smooth 90-180° turns at moderate speed
+    - Weight shifting from one foot to another
+    - Upper body movements (arms, torso, head) with stable base
+    - Leaning slightly while maintaining balance
+    - Arm movements as whole units (shoulder and elbow joints)
+    - Leg movements as whole units (hip and knee joints)
+    - Hand positions: open palm (flat) or closed fist ONLY - no individual finger control
+    - All movements must be smooth, controlled, and mechanically feasible with 4-limb robots
     
     Frame consistency:
     - The video should start and end with the character in the same pose as the reference image
@@ -316,7 +428,7 @@ export const generateActionVideo = async (
     config: {
       numberOfVideos: 1,
       resolution: '720p',
-      aspectRatio: '9:16', // Match the character image aspect ratio
+      aspectRatio: '9:16', // 竖屏视频格式 (宽:高 = 9:16)，适合展示全身动作
       durationSeconds: videoDuration, // 指定视频时长
       // 设置尾帧为同一张图片，确保视频首尾一致（角色回到初始姿势）
       lastFrame: {
