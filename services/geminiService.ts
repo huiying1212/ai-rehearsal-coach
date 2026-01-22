@@ -97,7 +97,7 @@ export const generateRehearsalScript = async (scenario: string) => {
   `;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -161,15 +161,16 @@ export const generateCharacterImage = async (characterDescription: string): Prom
     Professional reference image style, high resolution, clean and crisp.
   `.trim();
 
-  // Use Gemini's native image generation capability
+  // Use Nano Banana Pro (Gemini 3 Pro Image) for high-quality professional image generation
+  // Using 1K resolution to avoid connection issues with large responses
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash-exp',
+    model: 'gemini-3-pro-image-preview',
     contents: prompt,
     config: {
-      responseModalities: [Modality.TEXT, Modality.IMAGE],
+      responseModalities: [Modality.IMAGE],  // Only request image, not text
       imageConfig: {
         aspectRatio: '3:4',  // 竖屏 4:3 (宽:高 = 3:4，即高度更大)
-        imageSize: '2K'      // 高分辨率
+        imageSize: '1K'      // 使用 1K 避免响应过大导致连接关闭
       }
     }
   });
@@ -194,7 +195,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
   const ai = getAIClient();
   
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-preview-tts',
+    model: 'gemini-2.5-flash-preview-tts',  // TTS 继续使用 2.5 模型（3.0 暂无 TTS 变体）
     contents: [{ parts: [{ text }] }],
     config: {
       responseModalities: [Modality.AUDIO],
@@ -272,143 +273,101 @@ export const generateActionVideo = async (
     : '';
   
   if (gestureType === 'beat') {
-    // Beat 手势：根据说话内容和角色特点自然生成动作，不包含具体手势描述
+    // Beat 手势：根据说话内容和角色特点自然生成动作，使用电影化描述
     actionPrompt = `
-      ${contextPrefix}${personalityPrefix}A character performing actions naturally based on what they are saying: "${spokenText}"
+      ${contextPrefix}${personalityPrefix}
       
-      The character should use FULL-BODY movements including:
-      - Arms (as whole limbs) expressing the content naturally
-      - Hands in simple open or closed positions (NO finger gestures)
-      - Body posture changes (leaning, turning, rotating torso)
-      - Leg movements (stepping, shifting weight, stance changes)
-      - Head movements and facial expressions
-      - Dynamic, vibrant gestures that engage the whole body
+      SUBJECT AND ACTION:
+      A character speaks and gestures naturally: "${spokenText}"
+      The character uses expressive full-body movements - arms sweeping, torso rotating, weight shifting, stepping forward or to the side.
+      Arms move as whole units with hands in simple open or closed positions (no finger gestures).
+      Body language matches the speech content with vivid, dynamic gestures.
       
-      Make movements VIVID and EXPRESSIVE to convey personality and enhance the message:
-      - Use ASYMMETRIC poses (arms at different heights, weight on one leg) for visual interest
-      - Vary SPEED and INTENSITY (sudden arm raises, slow weight shifts, quick turns)
-      - Create SHAPES with the body (wide stances, arms overhead, torso leaning, diagonal lines)
-      - Use RHYTHM and DYNAMICS (alternate movements, build and release tension)
-      - Match movement QUALITY to emotion (forceful fists for strength, open palms for welcome, quick gestures for excitement)
-      - Engage MULTIPLE body parts simultaneously (arm + torso + leg all moving together creates impact)
+      VISUAL STYLE:
+      - Movements are DRAMATICALLY EXPRESSIVE and CHARACTER-DRIVEN
+      - Create ASYMMETRIC poses (arms at different heights, weight on one leg) for visual interest
+      - Vary SPEED and INTENSITY: sudden arm raises, slow weight shifts, smooth turns
+      - Use FULL RANGE OF MOTION: arms fully extended, deep stances, full torso rotation
+      - LAYER multiple body parts: arm gesture + torso twist + weight shift working together
+      - Match movement QUALITY to emotion:
+        * Power/strength: wide stance, arms overhead, closed fists
+        * Welcome/openness: arms sweeping outward, open palms, forward steps
+        * Urgency/excitement: quick alternating movements, forward lean
+        * Importance: slow deliberate gestures, hold positions
       
-      The character can move freely within the frame - walking, stepping, gesturing expansively.
-      Don't limit movements to just hands and arms - use the ENTIRE BODY to communicate personality and content.
+      ENVIRONMENT:
+      Pure white background, clean and minimal. No shadows, no props, no additional objects.
       
-      ROBOT SAFETY CONSTRAINTS (CRITICAL - these motions are intended for robotic systems):
-      - NO leg crossing or complex leg entanglements
-      - NO rapid spinning or fast rotations (keep turns smooth and controlled, max 180° turn)
-      - NO jumping, hopping, or leaving the ground
-      - NO kneeling, crouching, or sitting down
-      - NO backward walking or unstable movements
-      - NO finger gestures (counting with fingers, pointing with index finger, making shapes with fingers, OK sign, thumbs up, peace sign, heart shape with hands)
-      - NO fine hand articulation or dexterous finger movements
-      - Keep feet planted or move in simple, stable steps (forward, side-to-side)
-      - Maintain balanced, upright posture at all times
-      - Only use LIMB-LEVEL movements: arms (as whole units), legs (as whole units), open/closed hand positions only
-      - Hands can be open (palm flat) or closed (fist), but no individual finger control
-      - All movements must be smooth, controlled, and robotically feasible
-      - Avoid complex multi-joint coordination that would be difficult for robots
+      LIGHTING:
+      Even, neutral lighting with no dramatic shadows. Professional studio quality.
+      
+      CAMERA:
+      Static full-body shot, eye-level perspective. The camera does not move, zoom, or pan.
+      The entire character remains visible from head to toe throughout the video, centered in frame.
+      
+      TECHNICAL CONSTRAINTS (Robot Motion Safety):
+      The movements must be robotically feasible:
+      - Simple forward or side-to-side steps with feet planted (NO leg crossing, jumping, kneeling, backward walking)
+      - Smooth 90-180° turns at moderate speed (NO rapid spinning)
+      - Arms move as whole units at shoulder and elbow (NO finger gestures or hand articulation)
+      - Hands in open palm or closed fist positions only
+      - Maintain balanced upright posture, no tilting beyond safe angles
+      - All movements smooth, controlled, and mechanically feasible for 4-limb robots
     `.trim();
   } else {
-    // Deictic/Iconic/Metaphoric 手势：包含高层次效果描述
+    // Deictic/Iconic/Metaphoric 手势：包含高层次效果描述，使用电影化语言
     actionPrompt = `
-      ${contextPrefix}${personalityPrefix}The gesture should embody this feeling/effect: "${gestureDescription || 'Natural expressive gesture'}".
-      The character is saying: "${spokenText}"
+      ${contextPrefix}${personalityPrefix}
       
-      INTERPRET this high-level description creatively and translate it into FULL-BODY MOVEMENT:
-      - The description provides the DESIRED EFFECT or EMOTIONAL QUALITY, not specific limb instructions
-      - Use your understanding to create movements that authentically express this feeling
-      - Engage the WHOLE BODY: arms, legs, torso, head all work together to convey the effect
-      - Think about how a person would PHYSICALLY EMBODY this feeling or metaphor
-      - Use spatial relationships (up/down, in/out, expanding/contracting) to express the meaning
+      SUBJECT AND ACTION:
+      A character embodies the feeling: "${gestureDescription || 'Natural expressive gesture'}"
+      The character speaks: "${spokenText}"
       
-      Make the interpretation VIVID and DRAMATICALLY EXPRESSIVE:
-      - Translate the abstract description into CONCRETE, COMMITTED physical actions
-      - Use STRONG visual choices that clearly communicate the intended effect
+      Interpret this high-level description creatively, translating the DESIRED EFFECT into compelling full-body movement.
+      The character physically manifests this feeling through expressive gestures - arms extending, torso rotating, weight shifting, stepping.
+      Movement quality (smooth/sharp, sustained/quick, strong/gentle) matches the emotional effect.
+      Use spatial relationships (up/down, in/out, expanding/contracting) to express the meaning.
+      Arms move as whole units with hands in simple open or closed positions (no finger gestures).
+      
+      VISUAL STYLE:
+      - DRAMATICALLY EXPRESSIVE and committed physical embodiment
       - Create DYNAMIC SHAPES and movements that embody the feeling
-      - Layer multiple body parts to AMPLIFY the expression
-      - Consider the QUALITY of movement (smooth/sharp, sustained/quick, strong/gentle) that matches the effect
-      - Use the FULL RANGE of motion to make the feeling visible and compelling
+      - STRONG visual choices that clearly communicate the intended effect
+      - Use FULL RANGE OF MOTION: arms fully extended, deep stances, full torso rotation
+      - LAYER multiple body parts to AMPLIFY expression: arm gesture + torso twist + weight shift
+      - Translate abstract description into CONCRETE, COMMITTED physical actions
       
-      The character should physically embody the described effect with full commitment and expressiveness.
-      Let the abstract description inspire creative, natural, full-body movements.
+      ENVIRONMENT:
+      Pure white background, clean and minimal. No shadows, no props, no additional objects.
       
-      ROBOT SAFETY CONSTRAINTS (CRITICAL - these motions are intended for robotic systems):
-      - NO leg crossing or complex leg entanglements
-      - NO rapid spinning or fast rotations (keep turns smooth and controlled, max 180° turn)
-      - NO jumping, hopping, or leaving the ground
-      - NO kneeling, crouching, or sitting down
-      - NO backward walking or unstable movements
-      - NO finger gestures (counting with fingers, pointing with index finger, making shapes with fingers, OK sign, thumbs up, peace sign, heart shape with hands)
-      - NO fine hand articulation or dexterous finger movements
-      - Keep feet planted or move in simple, stable steps (forward, side-to-side)
-      - Maintain balanced, upright posture at all times
-      - Only use LIMB-LEVEL movements: arms (as whole units), legs (as whole units), open/closed hand positions only
-      - Hands can be open (palm flat) or closed (fist), but no individual finger control
-      - All movements must be smooth, controlled, and robotically feasible
-      - Avoid complex multi-joint coordination that would be difficult for robots
+      LIGHTING:
+      Even, neutral lighting with no dramatic shadows. Professional studio quality.
+      
+      CAMERA:
+      Static full-body shot, eye-level perspective. The camera does not move, zoom, or pan.
+      The entire character remains visible from head to toe throughout the video, centered in frame.
+      
+      TECHNICAL CONSTRAINTS (Robot Motion Safety):
+      The movements must be robotically feasible:
+      - Simple forward or side-to-side steps with feet planted (NO leg crossing, jumping, kneeling, backward walking)
+      - Smooth 90-180° turns at moderate speed (NO rapid spinning)
+      - Arms move as whole units at shoulder and elbow (NO finger gestures or hand articulation)
+      - Hands in open palm or closed fist positions only
+      - Maintain balanced upright posture, no tilting beyond safe angles
+      - All movements smooth, controlled, and mechanically feasible for 4-limb robots
     `.trim();
   }
 
-  // 完整的视频生成提示词
-  const prompt = `
-    ${actionPrompt}
-    
-    Camera and scene requirements:
-    - Static camera position, no zoom, no panning, no camera movement
-    - Frame the character so their ENTIRE BODY (head to feet) is ALWAYS visible in the frame
-    - The character can move freely within the frame (walking, stepping, turning)
-    - Allow the character to use the full space while keeping them centered and fully visible
-    - Pure white background with no shadows or props
-    - Smooth, natural, dynamic human movement with full-body engagement
-    
-    Movement style guidelines - CREATE VIVID, EXPRESSIVE PERFORMANCES:
-    - Movements should be DRAMATICALLY EXPRESSIVE and CHARACTER-DRIVEN, not generic or minimal
-    - Use FULL RANGE OF MOTION: arms fully extended, deep lunges, full torso rotation within safe limits
-    - Create VISUAL INTEREST through asymmetry, varied heights, contrasting shapes
-    - Build DYNAMIC QUALITY: vary intensity (strong/gentle), speed (quick/sustained), direction (up/down/side)
-    - LAYER body parts: arm gesture + torso twist + weight shift all working together amplifies expression
-    - Match MOVEMENT QUALITY to emotion and content:
-      * Power/strength: wide stance, arms overhead or extended forcefully, closed fists, torso lifted
-      * Welcome/openness: arms sweeping outward, open palms, forward steps, torso opening
-      * Urgency/excitement: quick alternating movements, forward lean, rapid weight shifts
-      * Importance/emphasis: slow deliberate gestures, hold positions, strong shapes
-      * Resistance/conflict: pulling back motions, twisting away, closed fists, asymmetric stance
-    - Avoid timid or minimal movements - commit fully to each gesture within robot safety constraints
-    - If the character's personality is energetic, use EXPLOSIVE, expansive movements
-    - If the context is theatrical, allow BOLD, exaggerated full-body expressions
-    - Ensure all body parts (head, torso, arms, legs, feet) remain visible throughout
-    
-    CRITICAL ROBOT SAFETY CONSTRAINTS:
-    These movements will be deployed on physical robotic systems. Strictly avoid:
-    - Leg crossing, leg entanglement, or complex leg coordination
-    - Rapid spinning, fast rotations (max 180° smooth turn allowed)
-    - Jumping, hopping, bouncing, or any airborne movements
-    - Kneeling, crouching, squatting, or sitting
-    - Backward walking or unstable backward movements
-    - Loss of balance or tilting beyond safe angles
-    - Movements requiring precise multi-joint coordination
-    - Finger gestures: NO counting with fingers, pointing with index finger, OK sign, thumbs up, peace sign, heart shapes
-    - Individual finger movements or fine hand articulation
-    - Any gesture requiring dexterous finger control
-    
-    ALLOWED safe movements for robots:
-    - Simple forward walking with alternating steps
-    - Side-to-side steps with planted feet
-    - Smooth 90-180° turns at moderate speed
-    - Weight shifting from one foot to another
-    - Upper body movements (arms, torso, head) with stable base
-    - Leaning slightly while maintaining balance
-    - Arm movements as whole units (shoulder and elbow joints)
-    - Leg movements as whole units (hip and knee joints)
-    - Hand positions: open palm (flat) or closed fist ONLY - no individual finger control
-    - All movements must be smooth, controlled, and mechanically feasible with 4-limb robots
-    
-    Frame consistency:
-    - The video should start and end with the character in the same pose as the reference image
-    - Keep the entire character visible from head to toe at all times
-  `.trim();
+  // 完整的视频生成提示词 - 按照 Veo 3.1 最佳实践结构化
+  const prompt = `${actionPrompt}
+  
+DURATION: 8 seconds
+
+FRAME CONSISTENCY:
+The video starts with the character in the reference image pose, performs the described movements, then returns to a similar neutral pose by the end.
+
+MOTION QUALITY:
+Smooth, natural, fluid human movement. Cinematic realism with lifelike body mechanics and natural timing.`.trim();
 
   const logText = gestureType === 'beat' 
     ? spokenText.substring(0, 50) 
@@ -418,11 +377,15 @@ export const generateActionVideo = async (
   // 将同一张图片同时设置为首帧和尾帧，确保视频首尾一致
   // 参考文档: https://ai.google.dev/gemini-api/docs/video
   // Frame-specific generation: Generate a video by specifying the first and last frames.
+  
+  // 确保 base64 数据不包含 data URL 前缀
+  const cleanBase64 = referenceImageBase64.replace(/^data:image\/\w+;base64,/, '');
+  
   let operation = await ai.models.generateVideos({
     model: 'veo-3.1-fast-generate-preview',
     prompt: prompt,
     image: {
-      imageBytes: referenceImageBase64,
+      imageBytes: cleanBase64,
       mimeType: 'image/png'
     },
     config: {
@@ -432,7 +395,7 @@ export const generateActionVideo = async (
       durationSeconds: videoDuration, // 指定视频时长
       // 设置尾帧为同一张图片，确保视频首尾一致（角色回到初始姿势）
       lastFrame: {
-        imageBytes: referenceImageBase64,
+        imageBytes: cleanBase64,
         mimeType: 'image/png'
       }
     }

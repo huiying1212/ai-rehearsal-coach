@@ -2,7 +2,7 @@ import { ScriptSegment, SegmentStatus, GestureType } from '../types';
 import { base64ToDataUrl } from './geminiService';
 
 interface ExportProgress {
-  stage: 'preparing' | 'loading' | 'rendering' | 'mixing_audio' | 'encoding' | 'complete';
+  stage: 'preparing' | 'loading' | 'rendering' | 'encoding' | 'complete';
   progress: number; // 0-100
   currentSegment?: number;
   totalSegments?: number;
@@ -25,12 +25,12 @@ interface SegmentMedia {
 
 /**
  * Export the final composed video with mixed audio.
+ * 使用 MediaRecorder 实时录制，这是最可靠的方案。
  * 
  * 合成逻辑：
  * 1. TTS音频作为"绝对时间轴主尺"
  * 2. 无手势段落：使用静态角色图片
  * 3. 有视频段落：播放视频并用视频音频替换TTS音频
- * 4. 在有视频段落，使用视频中的音频（更匹配手势），并在边界处平滑过渡
  */
 export async function exportComposedVideo(
   segments: ScriptSegment[],
@@ -121,9 +121,6 @@ export async function exportComposedVideo(
 
   onProgress?.({ stage: 'rendering', progress: 25 });
 
-  // 计算总时长（基于TTS音频）
-  const totalDuration = mediaData.reduce((sum, m) => sum + m.ttsDuration, 0);
-
   // 设置MediaRecorder和音频上下文
   const stream = canvas.captureStream(30); // 30 FPS
   const audioContext = new AudioContext();
@@ -135,12 +132,13 @@ export async function exportComposedVideo(
     stream.addTrack(audioTrack);
   }
 
-  // 确定支持的MIME类型
+  // 获取支持的 MIME 类型
   const mimeType = getSupportedMimeType();
+  console.log(`[Export] Using MIME type: ${mimeType}`);
   
   const mediaRecorder = new MediaRecorder(stream, {
     mimeType,
-    videoBitsPerSecond: 5000000, // 5 Mbps
+    videoBitsPerSecond: 8000000, // 8 Mbps
   });
 
   const chunks: Blob[] = [];
@@ -154,10 +152,8 @@ export async function exportComposedVideo(
   mediaRecorder.start(100);
 
   // 逐段渲染
-  let currentTime = 0;
-  
   for (let i = 0; i < mediaData.length; i++) {
-    const { segment, ttsAudio, ttsDuration, video, videoDuration, hasVideo } = mediaData[i];
+    const { ttsAudio, ttsDuration, video, videoDuration, hasVideo } = mediaData[i];
     
     onProgress?.({
       stage: 'rendering',
@@ -172,10 +168,6 @@ export async function exportComposedVideo(
 
     if (hasVideo && video) {
       // 有视频时，使用视频的音频（更匹配手势）
-      // 但需要注意：视频时长可能与TTS时长不同
-      // 我们以TTS时长为准，视频音频可能需要调整
-      
-      // 创建视频音频源
       video.muted = false;
       audioSource = audioContext.createMediaElementSource(video);
       useVideoAudio = true;
@@ -191,7 +183,6 @@ export async function exportComposedVideo(
     // 开始播放
     if (useVideoAudio && video) {
       video.currentTime = 0;
-      // 同时启动视频和TTS（TTS静音，只用于时间同步）
       ttsAudio.muted = true;
       ttsAudio.currentTime = 0;
       await Promise.all([
@@ -204,7 +195,6 @@ export async function exportComposedVideo(
     }
 
     // 渲染帧
-    // 使用 TTS 和视频时长的较大值，确保两者都能播放完成
     const actualVideoDuration = videoDuration || 0;
     const segmentDuration = Math.max(ttsDuration, actualVideoDuration);
     const segmentDurationMs = segmentDuration * 1000;
@@ -215,10 +205,6 @@ export async function exportComposedVideo(
     await new Promise<void>((resolve) => {
       const renderFrame = () => {
         const elapsed = performance.now() - startTime;
-        
-        // 使用 max(TTS, 视频) 时长作为段落时长
-        const ttsFinished = ttsAudio.ended || elapsed >= ttsDuration * 1000;
-        const videoFinished = !hasVideo || !video || video.ended || elapsed >= actualVideoDuration * 1000;
         const segmentFinished = elapsed >= segmentDurationMs;
         
         if (!segmentFinished) {
@@ -250,32 +236,32 @@ export async function exportComposedVideo(
       
       renderFrame();
     });
-
-    currentTime += segmentDuration;
   }
 
-  onProgress?.({ stage: 'encoding', progress: 90 });
+  onProgress?.({ stage: 'encoding', progress: 85 });
 
-  // 停止录制并获取最终blob
-  await new Promise<void>((resolve) => {
-    mediaRecorder.onstop = () => resolve();
+  // 停止录制并获取 blob
+  const videoBlob = await new Promise<Blob>((resolve) => {
+    mediaRecorder.onstop = () => {
+      resolve(new Blob(chunks, { type: mimeType }));
+    };
     mediaRecorder.stop();
   });
 
   // 清理音频上下文
   await audioContext.close();
 
-  // 创建最终视频blob
-  const fileExtension = mimeType.includes('webm') ? 'webm' : 'mp4';
-  const blob = new Blob(chunks, { type: mimeType });
-  
+  // 确定文件扩展名
+  const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+  console.log(`[Export] Video created: ${(videoBlob.size / 1024 / 1024).toFixed(2)} MB (${extension})`);
+
   onProgress?.({ stage: 'complete', progress: 100 });
 
   // 触发下载
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(videoBlob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `rehearsal-composed-${Date.now()}.${fileExtension}`;
+  a.download = `rehearsal-composed-${Date.now()}.${extension}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -341,17 +327,32 @@ function drawImage(
 }
 
 /**
- * 获取支持的MIME类型
+ * 获取浏览器支持的 MIME 类型
+ * 优先使用 MP4（如果支持），否则使用 WebM
  */
 function getSupportedMimeType(): string {
-  const types = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
+  // 尝试 MP4 格式（Safari 和部分 Chrome 支持）
+  const mp4Types = [
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4;codecs=h264,aac',
     'video/mp4',
   ];
   
-  for (const type of types) {
+  for (const type of mp4Types) {
+    if (MediaRecorder.isTypeSupported(type)) {
+      return type;
+    }
+  }
+
+  // WebM 格式（Chrome, Firefox, Edge 支持）
+  const webmTypes = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=h264,opus',
+    'video/webm',
+  ];
+  
+  for (const type of webmTypes) {
     if (MediaRecorder.isTypeSupported(type)) {
       return type;
     }

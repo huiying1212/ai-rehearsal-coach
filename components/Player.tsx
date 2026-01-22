@@ -165,7 +165,6 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
           'preparing': 'Preparing...',
           'loading': `Loading media (${progress.currentSegment}/${progress.totalSegments})...`,
           'rendering': `Rendering (${progress.currentSegment}/${progress.totalSegments})...`,
-          'mixing_audio': 'Mixing audio tracks...',
           'encoding': 'Encoding video...',
           'complete': 'Complete!'
         };
