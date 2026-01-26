@@ -1,0 +1,373 @@
+<mxfile host="app.diagrams.net" agent="Cursor AI" version="24.0.0">
+  <diagram name="AI Rehearsal Coach Workflow" id="workflow-main">
+    <mxGraphModel dx="2200" dy="1400" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2800" pageHeight="1200" math="1" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- ==================== LEGEND ==================== -->
+        <mxCell id="legend" value="&lt;span style=&quot;font-size: 11px;&quot;&gt;❄️ = Frozen LLM&lt;/span&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=#666;" vertex="1" parent="1">
+          <mxGeometry x="2400" y="30" width="120" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- ==================== INPUT ==================== -->
+        <mxCell id="user-icon" value="" style="shape=actor;whiteSpace=wrap;html=1;fillColor=#333;strokeColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="60" y="400" width="30" height="50" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="input-box" value="&lt;b&gt;[Scenario]&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;You are giving a toast&lt;br&gt;at your best friend&#39;s&lt;br&gt;wedding...&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="100" y="385" width="130" height="70" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: Input to Content Gen -->
+        <mxCell id="arrow-input" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="235" y="420" as="sourcePoint" />
+            <mxPoint x="295" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-sin" value="&lt;i&gt;s&lt;sub&gt;in&lt;/sub&gt;&lt;/i&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="250" y="395" width="30" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== PHASE 1: CONTENT GENERATION ==================== -->
+        <mxCell id="content-gen-container" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#1976d2;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="295" y="120" width="580" height="600" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="content-gen-title" value="&lt;b&gt;Content Generation&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#1976d2;" vertex="1" parent="1">
+          <mxGeometry x="490" y="130" width="150" height="25" as="geometry" />
+        </mxCell>
+        
+        <!-- Script Generation Module -->
+        <mxCell id="script-prompt-box" value="&lt;div style=&quot;text-align: left; font-size: 10px;&quot;&gt;&lt;b&gt;Rules:&lt;/b&gt;&lt;br&gt;- Break performance into segments&lt;br&gt;- Each segment ≤ 8 seconds&lt;br&gt;- Assign gesture type ∈ {none, beat,&lt;br&gt;   deictic, iconic, metaphoric}&lt;br&gt;...&lt;br&gt;&lt;b&gt;Gesture Guidelines:&lt;/b&gt;&lt;br&gt;- Effect-based descriptions&lt;br&gt;- Robot-safe constraints&lt;br&gt;...&lt;br&gt;&lt;b&gt;Examples&lt;/b&gt;&lt;br&gt;...&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#90caf9;fontSize=10;align=left;spacingLeft=8;spacingTop=5;" vertex="1" parent="1">
+          <mxGeometry x="310" y="165" width="180" height="175" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="script-gen-module" value="&lt;b&gt;Script Generation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;❄️ Gemini 3 Pro&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbdefb;strokeColor=#64b5f6;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="320" y="390" width="160" height="55" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: prompt to script module -->
+        <mxCell id="arrow-prompt-script" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666;dashed=1;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="400" y="345" as="sourcePoint" />
+            <mxPoint x="400" y="385" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-hpre" value="&lt;i&gt;p&lt;sub&gt;script&lt;/sub&gt;&lt;/i&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#666;" vertex="1" parent="1">
+          <mxGeometry x="405" y="355" width="45" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: input to script gen -->
+        <mxCell id="arrow-to-script" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="295" y="420" as="sourcePoint" />
+            <mxPoint x="315" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Script Output Structure -->
+        <mxCell id="script-output" value="&lt;div style=&quot;text-align: left; font-size: 9px; font-family: monospace;&quot;&gt;&lt;b&gt;Output Schema:&lt;/b&gt;&lt;br&gt;{&lt;br&gt;  script: [{&lt;br&gt;    spoken_text: &lt;i&gt;t&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;,&lt;br&gt;    gesture_type: &lt;i&gt;g&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;,&lt;br&gt;    gesture_desc: &lt;i&gt;d&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;&lt;br&gt;  }],&lt;br&gt;  char_description,&lt;br&gt;  char_personality: &lt;i&gt;ρ&lt;/i&gt;&lt;br&gt;}&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#a5d6a7;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="320" y="475" width="150" height="140" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: script to output -->
+        <mxCell id="arrow-script-output" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="400" y="450" as="sourcePoint" />
+            <mxPoint x="400" y="470" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Character Generation Module -->
+        <mxCell id="char-prompt-box" value="&lt;div style=&quot;text-align: left; font-size: 10px;&quot;&gt;&lt;b&gt;Rules:&lt;/b&gt;&lt;br&gt;- Full body, head to toe&lt;br&gt;- Neutral standing pose&lt;br&gt;- Pure white background&lt;br&gt;- Front view, eye-level&lt;br&gt;...&lt;br&gt;&lt;b&gt;Config:&lt;/b&gt;&lt;br&gt;- Aspect: 3:4 (portrait)&lt;br&gt;- Resolution: 1K&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#f48fb1;fontSize=10;align=left;spacingLeft=8;spacingTop=5;" vertex="1" parent="1">
+          <mxGeometry x="630" y="165" width="140" height="145" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="char-gen-module" value="&lt;b&gt;Character Generation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;❄️ Gemini 3 Pro Image&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8bbd9;strokeColor=#f48fb1;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="600" y="390" width="175" height="55" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: prompt to char module -->
+        <mxCell id="arrow-prompt-char" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666;dashed=1;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="700" y="315" as="sourcePoint" />
+            <mxPoint x="700" y="385" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-cpre" value="&lt;i&gt;p&lt;sub&gt;char&lt;/sub&gt;&lt;/i&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#666;" vertex="1" parent="1">
+          <mxGeometry x="705" y="340" width="40" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: script output to char gen (char_description) -->
+        <mxCell id="arrow-desc-to-char" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="475" y="505" as="sourcePoint" />
+            <mxPoint x="595" y="420" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="540" y="505" />
+              <mxPoint x="540" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-desc" value="&lt;i&gt;desc&lt;sub&gt;char&lt;/sub&gt;&lt;/i&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="505" y="480" width="55" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- Character Output -->
+        <mxCell id="char-output" value="&lt;b&gt;Reference Image&lt;/b&gt;&lt;br&gt;&lt;i&gt;I&lt;sub&gt;ref&lt;/sub&gt;&lt;/i&gt; (Base64 PNG)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#a5d6a7;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="625" y="500" width="125" height="50" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: char to output -->
+        <mxCell id="arrow-char-output" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="687" y="450" as="sourcePoint" />
+            <mxPoint x="687" y="495" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== USER EDITING (OPTIONAL) ==================== -->
+        <mxCell id="edit-module" value="&lt;b&gt;User Editing&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 9px;&quot;&gt;(optional)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#ffb74d;fontSize=11;strokeDasharray=3 3;" vertex="1" parent="1">
+          <mxGeometry x="910" y="395" width="100" height="50" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: Content Gen to Edit -->
+        <mxCell id="arrow-to-edit" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="880" y="420" as="sourcePoint" />
+            <mxPoint x="905" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-content-out" value="&lt;i&gt;{(t&lt;sub&gt;i&lt;/sub&gt;, g&lt;sub&gt;i&lt;/sub&gt;, d&lt;sub&gt;i&lt;/sub&gt;), I&lt;sub&gt;ref&lt;/sub&gt;, ρ}&lt;/i&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="820" y="393" width="90" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: Edit to Media Gen -->
+        <mxCell id="arrow-edit-to-media" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1015" y="420" as="sourcePoint" />
+            <mxPoint x="1070" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== PHASE 2: MEDIA GENERATION ==================== -->
+        <mxCell id="media-gen-container" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#388e3c;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="120" width="680" height="600" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="media-gen-title" value="&lt;b&gt;Media Generation&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#388e3c;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="130" width="140" height="25" as="geometry" />
+        </mxCell>
+        
+        <!-- Duration Check (TTS) -->
+        <mxCell id="tts-check" value="&lt;font style=&quot;font-size: 9px;&quot;&gt;&lt;b&gt;Duration Check&lt;/b&gt;&lt;br&gt;TTS → &lt;i&gt;τ&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;&lt;br&gt;&lt;i&gt;τ&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; ≤ 8s ?&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#bdbdbd;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="1095" y="395" width="85" height="50" as="geometry" />
+        </mxCell>
+        
+        <!-- Condition diamond -->
+        <mxCell id="condition" value="&lt;font style=&quot;font-size: 9px;&quot;&gt;&lt;i&gt;g&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; ≠ none&lt;br&gt;&amp;amp;&amp;amp;&lt;br&gt;&lt;i&gt;τ&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; ≤ 8s&lt;/font&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#fdd835;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="1205" y="380" width="80" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: TTS to condition -->
+        <mxCell id="arrow-tts-cond" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1185" y="420" as="sourcePoint" />
+            <mxPoint x="1200" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Video Generation Prompt Box -->
+        <mxCell id="video-prompt-box" value="&lt;div style=&quot;text-align: left; font-size: 10px;&quot;&gt;&lt;b&gt;Rules:&lt;/b&gt;&lt;br&gt;- Interpret gesture effect creatively&lt;br&gt;- Full-body expressive movement&lt;br&gt;- Arms as whole units only&lt;br&gt;...&lt;br&gt;&lt;b&gt;Robot Safety Constraints:&lt;/b&gt;&lt;br&gt;- No leg crossing / jumping&lt;br&gt;- No rapid spinning (&gt;180°)&lt;br&gt;- No finger articulation&lt;br&gt;...&lt;br&gt;&lt;b&gt;Config:&lt;/b&gt;&lt;br&gt;- Resolution: 720p, 9:16&lt;br&gt;- Duration: 8s (fixed)&lt;br&gt;- First/Last frame: &lt;i&gt;I&lt;sub&gt;ref&lt;/sub&gt;&lt;/i&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#a5d6a7;fontSize=10;align=left;spacingLeft=8;spacingTop=5;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="165" width="185" height="200" as="geometry" />
+        </mxCell>
+        
+        <!-- Beat Gesture Prompt -->
+        <mxCell id="beat-prompt" value="&lt;div style=&quot;text-align: left; font-size: 9px;&quot;&gt;&lt;b&gt;Beat Prompt Template:&lt;/b&gt;&lt;br&gt;&lt;br&gt;SUBJECT: Character speaks&lt;br&gt;&quot;&lt;i&gt;t&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;&quot; with personality &lt;i&gt;ρ&lt;/i&gt;&lt;br&gt;&lt;br&gt;STYLE: Dramatic, asymmetric,&lt;br&gt;character-driven movement&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#90caf9;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1530" y="165" width="145" height="100" as="geometry" />
+        </mxCell>
+        
+        <!-- Other Gesture Prompt -->
+        <mxCell id="other-prompt" value="&lt;div style=&quot;text-align: left; font-size: 9px;&quot;&gt;&lt;b&gt;Deictic/Iconic/Metaphoric:&lt;/b&gt;&lt;br&gt;&lt;br&gt;SUBJECT: Character embodies&lt;br&gt;&quot;&lt;i&gt;d&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;&quot; while speaking &quot;&lt;i&gt;t&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;&quot;&lt;br&gt;&lt;br&gt;+ effect-based description&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#ffcc80;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1530" y="275" width="145" height="90" as="geometry" />
+        </mxCell>
+        
+        <!-- Video Generation Module -->
+        <mxCell id="video-gen-module" value="&lt;b&gt;Video Generation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;❄️ Veo 3.1 Fast&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#81c784;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1405" y="400" width="150" height="50" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: condition to video (Yes) -->
+        <mxCell id="arrow-cond-video" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#4caf50;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1290" y="420" as="sourcePoint" />
+            <mxPoint x="1400" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-yes" value="&lt;font color=&quot;#4caf50&quot;&gt;Yes&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="400" width="30" height="15" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: prompt to video module -->
+        <mxCell id="arrow-prompt-video" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666;dashed=1;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1480" y="370" as="sourcePoint" />
+            <mxPoint x="1480" y="395" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-pvideo" value="&lt;i&gt;p&lt;sub&gt;video&lt;/sub&gt;&lt;/i&gt;(&lt;i&gt;g&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;t&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;d&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;I&lt;sub&gt;ref&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;ρ&lt;/i&gt;)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;fontColor=#666;" vertex="1" parent="1">
+          <mxGeometry x="1485" y="370" width="130" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- Static Image path (No gesture) -->
+        <mxCell id="static-path" value="&lt;font style=&quot;font-size: 9px;&quot;&gt;Use &lt;i&gt;I&lt;sub&gt;ref&lt;/sub&gt;&lt;/i&gt;&lt;br&gt;(static)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#bdbdbd;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="1295" y="500" width="70" height="40" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: condition to static (No) -->
+        <mxCell id="arrow-cond-static" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#f44336;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1245" y="465" as="sourcePoint" />
+            <mxPoint x="1310" y="495" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-no" value="&lt;font color=&quot;#f44336&quot;&gt;No&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1250" y="475" width="25" height="15" as="geometry" />
+        </mxCell>
+        
+        <!-- Video Output -->
+        <mxCell id="video-output" value="&lt;i&gt;v&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; (video segment)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#81c784;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1425" y="500" width="110" height="35" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: video to output -->
+        <mxCell id="arrow-video-out" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1480" y="455" as="sourcePoint" />
+            <mxPoint x="1480" y="495" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Composition Module -->
+        <mxCell id="composition" value="&lt;b&gt;Composition&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 9px;&quot;&gt;Combine all segments&lt;br&gt;&lt;i&gt;V&lt;/i&gt; = concat(&lt;i&gt;v&lt;sub&gt;1&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;v&lt;sub&gt;2&lt;/sub&gt;&lt;/i&gt;, ..., &lt;i&gt;v&lt;sub&gt;n&lt;/sub&gt;&lt;/i&gt;)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#ba68c8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1575" y="485" width="130" height="55" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrows to composition -->
+        <mxCell id="arrow-static-comp" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1370" y="520" as="sourcePoint" />
+            <mxPoint x="1570" y="520" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="arrow-video-comp" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1540" y="517" as="sourcePoint" />
+            <mxPoint x="1570" y="517" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Loop indicator -->
+        <mxCell id="loop-arrow" value="" style="endArrow=classic;html=1;rounded=1;strokeWidth=1.5;strokeColor=#666;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1480" y="500" as="sourcePoint" />
+            <mxPoint x="1135" y="390" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1480" y="580" />
+              <mxPoint x="1100" y="580" />
+              <mxPoint x="1100" y="390" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="loop-label" value="&lt;font style=&quot;font-size: 9px; color: #666;&quot;&gt;for each segment &lt;i&gt;i&lt;/i&gt; ∈ [1, &lt;i&gt;n&lt;/i&gt;]&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="560" width="130" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- ==================== OUTPUT ==================== -->
+        <!-- Arrow: Media to Output -->
+        <mxCell id="arrow-to-output" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1755" y="512" as="sourcePoint" />
+            <mxPoint x="1810" y="512" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-V" value="&lt;i&gt;V&lt;/i&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="1770" y="490" width="20" height="20" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="output-box" value="&lt;b&gt;Playback &amp; Export&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 9px;&quot;&gt;Player.tsx&lt;br&gt;videoExportService.ts&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b2;strokeColor=#ffb74d;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1810" y="485" width="130" height="55" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="user-icon-out" value="" style="shape=actor;whiteSpace=wrap;html=1;fillColor=#333;strokeColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="1980" y="490" width="30" height="50" as="geometry" />
+        </mxCell>
+        
+        <!-- Arrow: Output to User -->
+        <mxCell id="arrow-to-user" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1.5;strokeColor=#333;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1945" y="512" as="sourcePoint" />
+            <mxPoint x="1975" y="512" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-final" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;.mp4/.webm&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="1935" y="465" width="70" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- ==================== FEEDBACK LOOP ==================== -->
+        <mxCell id="feedback-arrow" value="" style="endArrow=classic;html=1;rounded=1;strokeWidth=1.5;strokeColor=#ff9800;dashed=1;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="1875" y="545" as="sourcePoint" />
+            <mxPoint x="960" y="450" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1875" y="660" />
+              <mxPoint x="960" y="660" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="feedback-label" value="&lt;font style=&quot;font-size: 9px; color: #ff9800;&quot;&gt;&lt;b&gt;User Feedback&lt;/b&gt; &lt;i&gt;f&lt;/i&gt; (optional iteration)&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="665" width="180" height="20" as="geometry" />
+        </mxCell>
+        
+        <!-- ==================== NOTATION SUMMARY ==================== -->
+        <mxCell id="notation-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#e0e0e0;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="2040" y="165" width="230" height="250" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="notation-title" value="&lt;b&gt;Notation&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="2115" y="175" width="80" height="20" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="notation-content" value="&lt;div style=&quot;text-align: left; font-size: 10px;&quot;&gt;&lt;i&gt;s&lt;sub&gt;in&lt;/sub&gt;&lt;/i&gt; : User scenario input&lt;br&gt;&lt;br&gt;&lt;i&gt;t&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; : Spoken text of segment &lt;i&gt;i&lt;/i&gt;&lt;br&gt;&lt;i&gt;g&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; : Gesture type of segment &lt;i&gt;i&lt;/i&gt;&lt;br&gt;&lt;i&gt;d&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; : Gesture description&lt;br&gt;&lt;br&gt;&lt;i&gt;I&lt;sub&gt;ref&lt;/sub&gt;&lt;/i&gt; : Reference character image&lt;br&gt;&lt;i&gt;ρ&lt;/i&gt; : Character personality&lt;br&gt;&lt;br&gt;&lt;i&gt;τ&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; : TTS duration of segment &lt;i&gt;i&lt;/i&gt;&lt;br&gt;&lt;i&gt;v&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; : Video segment &lt;i&gt;i&lt;/i&gt;&lt;br&gt;&lt;br&gt;&lt;i&gt;V&lt;/i&gt; : Final composed video&lt;br&gt;&lt;i&gt;f&lt;/i&gt; : User feedback&lt;/div&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="2050" y="200" width="210" height="200" as="geometry" />
+        </mxCell>
+        
+        <!-- ==================== GESTURE TYPES ==================== -->
+        <mxCell id="gesture-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#e0e0e0;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="2040" y="440" width="230" height="100" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="gesture-title" value="&lt;b&gt;Gesture Types &lt;/b&gt;&lt;i&gt;g&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; &lt;b&gt;∈&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="2100" y="450" width="110" height="20" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="gesture-list" value="&lt;div style=&quot;text-align: left; font-size: 10px;&quot;&gt;• &lt;b&gt;none&lt;/b&gt;: Static (no motion)&lt;br&gt;• &lt;b&gt;beat&lt;/b&gt;: Rhythmic emphasis&lt;br&gt;• &lt;b&gt;deictic&lt;/b&gt;: Pointing/directing&lt;br&gt;• &lt;b&gt;iconic&lt;/b&gt;: Depicting shape/action&lt;br&gt;• &lt;b&gt;metaphoric&lt;/b&gt;: Abstract concept&lt;/div&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="2050" y="475" width="210" height="85" as="geometry" />
+        </mxCell>
+        
+        <!-- ==================== TITLE ==================== -->
+        <mxCell id="title" value="&lt;b style=&quot;font-size: 18px;&quot;&gt;Generative Rehearsal Motion&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=#333;" vertex="1" parent="1">
+          <mxGeometry x="830" y="40" width="300" height="30" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="subtitle" value="&lt;font style=&quot;font-size: 11px; color: #666;&quot;&gt;Given a scenario &lt;i&gt;s&lt;sub&gt;in&lt;/sub&gt;&lt;/i&gt;, the &lt;b&gt;Script Generation&lt;/b&gt; module produces gesture-annotated segments {(&lt;i&gt;t&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;g&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;d&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;)} and a character description, &lt;br&gt;which is used by &lt;b&gt;Character Generation&lt;/b&gt; to produce reference image &lt;i&gt;I&lt;sub&gt;ref&lt;/sub&gt;&lt;/i&gt;. Then, for each segment where &lt;i&gt;g&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; ≠ none, &lt;br&gt;&lt;b&gt;Video Generation&lt;/b&gt; creates motion video &lt;i&gt;v&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt; conditioned on (&lt;i&gt;t&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;g&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;d&lt;sub&gt;i&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;I&lt;sub&gt;ref&lt;/sub&gt;&lt;/i&gt;, &lt;i&gt;ρ&lt;/i&gt;) with robot-safe constraints. &lt;br&gt;User can provide feedback &lt;i&gt;f&lt;/i&gt; to iterate on content or regenerate specific segments.&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="500" y="65" width="700" height="55" as="geometry" />
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
