@@ -122,6 +122,7 @@ export async function exportComposedVideo(
   onProgress?.({ stage: 'rendering', progress: 25 });
 
   // 设置MediaRecorder和音频上下文
+  // 使用固定帧率的 captureStream，交给浏览器根据实际刷新率采样，更容易和媒体播放对齐
   const stream = canvas.captureStream(30); // 30 FPS
   const audioContext = new AudioContext();
   const audioDestination = audioContext.createMediaStreamDestination();
@@ -194,34 +195,41 @@ export async function exportComposedVideo(
       await ttsAudio.play();
     }
 
-    // 渲染帧
+    // 渲染帧 - 按音/视频的实际播放进度来判断结束时间，保证画面和声音对齐
     const actualVideoDuration = videoDuration || 0;
     const segmentDuration = Math.max(ttsDuration, actualVideoDuration);
-    const segmentDurationMs = segmentDuration * 1000;
-    const startTime = performance.now();
     
-    console.log(`[Export] Segment ${i + 1}: TTS=${ttsDuration.toFixed(2)}s, Video=${actualVideoDuration.toFixed(2)}s, Using=${segmentDuration.toFixed(2)}s`);
+    console.log(
+      `[Export] Segment ${i + 1}: TTS=${ttsDuration.toFixed(2)}s, ` +
+      `Video=${actualVideoDuration.toFixed(2)}s, Using=${segmentDuration.toFixed(2)}s`
+    );
 
     await new Promise<void>((resolve) => {
       const renderFrame = () => {
-        const elapsed = performance.now() - startTime;
-        const segmentFinished = elapsed >= segmentDurationMs;
-        
-        if (!segmentFinished) {
-          // 清空画布
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          
-          if (hasVideo && video && !video.ended) {
-            // 绘制视频帧
-            drawVideoFrame(ctx, video, canvas.width, canvas.height);
-          } else {
-            // 视频已结束或无视频，绘制静态角色图片
-            drawImage(ctx, characterImage, canvas.width, canvas.height);
-          }
-          
-          requestAnimationFrame(renderFrame);
+        // 清空画布
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (hasVideo && video && !video.ended) {
+          // 绘制视频帧
+          drawVideoFrame(ctx, video, canvas.width, canvas.height);
         } else {
+          // 视频已结束或无视频，绘制静态角色图片
+          drawImage(ctx, characterImage, canvas.width, canvas.height);
+        }
+
+        // 根据媒体元素的实际播放进度来判断是否结束
+        const ttsDone =
+          ttsAudio.ended ||
+          ttsAudio.currentTime >= Math.max(0, ttsDuration - 0.05); // 留一点点余量，避免浮点误差
+
+        const videoDone =
+          !hasVideo ||
+          !video ||
+          video.ended ||
+          video.currentTime >= Math.max(0, actualVideoDuration - 0.05);
+
+        if (ttsDone && videoDone) {
           // 段落完成
           if (video) {
             video.pause();
@@ -231,6 +239,9 @@ export async function exportComposedVideo(
           ttsAudio.muted = false;
           audioSource.disconnect();
           resolve();
+        } else {
+          // 继续下一帧，和屏幕刷新同步，时间轴由音/视频元素自己控制
+          requestAnimationFrame(renderFrame);
         }
       };
       
