@@ -60,6 +60,9 @@ CAMERA:
 Static full-body shot, eye-level perspective. The camera does not move, zoom, or pan.
 The entire character remains visible from head to toe throughout the video, centered in frame.
 
+AUDIO:
+No background music. Silent or dialogue/voice only.
+
 TECHNICAL CONSTRAINTS (Robot Motion Safety):
 The movements must be robotically feasible:
 - Simple forward or side-to-side steps with feet planted (NO leg crossing, jumping, kneeling, backward walking)
