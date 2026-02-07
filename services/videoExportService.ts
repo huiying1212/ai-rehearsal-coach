@@ -1,14 +1,24 @@
 import { ScriptSegment, SegmentStatus, GestureType } from '../types';
 import { base64ToDataUrl } from './geminiService';
+import { extractAudioBlobFromVideo } from './audioUtils';
+import { convertAudioWithRvc, getRvcOptionsFromEnv, type RvcOptions } from './rvcService';
 
 interface ExportProgress {
-  stage: 'preparing' | 'loading' | 'rendering' | 'encoding' | 'complete';
+  stage: 'preparing' | 'loading' | 'rvc' | 'rendering' | 'encoding' | 'complete';
   progress: number; // 0-100
   currentSegment?: number;
   totalSegments?: number;
 }
 
 type ProgressCallback = (progress: ExportProgress) => void;
+
+/**
+ * 导出选项：可选 RVC 音色统一
+ */
+export interface ExportOptions {
+  /** 启用 RVC 时传入；不传则使用环境变量 VITE_RVC_*；为 null 则禁用 */
+  rvcOptions?: RvcOptions | null;
+}
 
 /**
  * 段落媒体数据结构
@@ -21,21 +31,29 @@ interface SegmentMedia {
   video?: HTMLVideoElement;
   videoDuration?: number;
   hasVideo: boolean;
+  /** RVC 统一音色后的音频（若已执行 RVC） */
+  unifiedAudio?: HTMLAudioElement;
+  unifiedDuration?: number;
+  /** RVC 生成的 blob URL，导出结束后需 revoke */
+  unifiedAudioUrl?: string;
 }
 
 /**
  * Export the final composed video with mixed audio.
  * 使用 MediaRecorder 实时录制，这是最可靠的方案。
- * 
+ * 若提供 rvcOptions（或配置了 VITE_RVC_*），会在导出前用 RVC 统一各段音色。
+ *
  * 合成逻辑：
  * 1. TTS音频作为"绝对时间轴主尺"
  * 2. 无手势段落：使用静态角色图片
  * 3. 有视频段落：播放视频并用视频音频替换TTS音频
+ * 4. 若启用 RVC：各段音频（TTS 或视频音轨）先经 RVC 转为统一音色再参与合成
  */
 export async function exportComposedVideo(
   segments: ScriptSegment[],
   characterImageBase64: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options?: ExportOptions
 ): Promise<void> {
   // 过滤有音频的段落
   const readySegments = segments.filter(
@@ -119,7 +137,42 @@ export async function exportComposedVideo(
     });
   }
 
-  onProgress?.({ stage: 'rendering', progress: 25 });
+  // 可选：RVC 统一音色（使用传入的 rvcOptions 或环境变量）
+  const rvcOptions = options?.rvcOptions !== undefined ? options.rvcOptions : getRvcOptionsFromEnv();
+  if (rvcOptions) {
+    for (let i = 0; i < mediaData.length; i++) {
+      const data = mediaData[i];
+      onProgress?.({
+        stage: 'rvc',
+        progress: 25 + (i / mediaData.length) * 15,
+        currentSegment: i + 1,
+        totalSegments: mediaData.length
+      });
+
+      let sourceBlob: Blob;
+      if (data.hasVideo && data.video) {
+        sourceBlob = await extractAudioBlobFromVideo(data.video);
+      } else {
+        const res = await fetch(data.segment.audioUrl!);
+        if (!res.ok) throw new Error(`Failed to fetch TTS audio for segment ${i + 1}`);
+        sourceBlob = await res.blob();
+      }
+
+      const convertedBlob = await convertAudioWithRvc(sourceBlob, rvcOptions);
+      const convertedUrl = URL.createObjectURL(convertedBlob);
+      const unifiedAudio = document.createElement('audio');
+      await new Promise<void>((resolve, reject) => {
+        unifiedAudio.onloadedmetadata = () => resolve();
+        unifiedAudio.onerror = () => reject(new Error(`Failed to load RVC audio for segment ${i + 1}`));
+        unifiedAudio.src = convertedUrl;
+      });
+      data.unifiedAudio = unifiedAudio;
+      data.unifiedDuration = unifiedAudio.duration;
+      data.unifiedAudioUrl = convertedUrl;
+    }
+  }
+
+  onProgress?.({ stage: 'rendering', progress: rvcOptions ? 40 : 25 });
 
   // 设置MediaRecorder和音频上下文
   // 使用固定帧率的 captureStream，交给浏览器根据实际刷新率采样，更容易和媒体播放对齐
@@ -154,74 +207,75 @@ export async function exportComposedVideo(
 
   // 逐段渲染
   for (let i = 0; i < mediaData.length; i++) {
-    const { ttsAudio, ttsDuration, video, videoDuration, hasVideo } = mediaData[i];
-    
+    const { ttsAudio, ttsDuration, video, videoDuration, hasVideo, unifiedAudio, unifiedDuration } = mediaData[i];
+
+    // 若已做 RVC 统一音色，则用统一后的音频；否则有视频用视频音轨，无视频用 TTS
+    const effectiveAudio = unifiedAudio ?? (hasVideo && video ? undefined : ttsAudio);
+    const effectiveDuration = unifiedDuration ?? ttsDuration;
+    const useUnifiedAudio = !!unifiedAudio;
+
     onProgress?.({
       stage: 'rendering',
-      progress: 25 + ((i / mediaData.length) * 60),
+      progress: (rvcOptions ? 40 : 25) + (i / mediaData.length) * 45,
       currentSegment: i + 1,
       totalSegments: mediaData.length
     });
 
-    // 确定使用哪个音频源
     let audioSource: MediaElementAudioSourceNode;
-    let useVideoAudio = false;
-
-    if (hasVideo && video) {
-      // 有视频时，使用视频的音频（更匹配手势）
+    if (useUnifiedAudio && unifiedAudio) {
+      audioSource = audioContext.createMediaElementSource(unifiedAudio);
+    } else if (hasVideo && video) {
       video.muted = false;
       audioSource = audioContext.createMediaElementSource(video);
-      useVideoAudio = true;
     } else {
-      // 无视频时使用TTS音频
       audioSource = audioContext.createMediaElementSource(ttsAudio);
     }
 
-    // 连接音频到输出
     audioSource.connect(audioDestination);
-    audioSource.connect(audioContext.destination); // 同时本地播放用于同步
+    audioSource.connect(audioContext.destination);
 
-    // 开始播放
-    if (useVideoAudio && video) {
+    if (useUnifiedAudio && unifiedAudio) {
+      unifiedAudio.currentTime = 0;
+      await unifiedAudio.play();
+      if (hasVideo && video) {
+        video.muted = true;
+        video.currentTime = 0;
+        await video.play();
+      }
+    } else if (hasVideo && video) {
       video.currentTime = 0;
       ttsAudio.muted = true;
       ttsAudio.currentTime = 0;
-      await Promise.all([
-        video.play(),
-        ttsAudio.play()
-      ]);
+      await Promise.all([video.play(), ttsAudio.play()]);
     } else {
       ttsAudio.currentTime = 0;
       await ttsAudio.play();
     }
 
-    // 渲染帧 - 按音/视频的实际播放进度来判断结束时间，保证画面和声音对齐
     const actualVideoDuration = videoDuration || 0;
-    const segmentDuration = Math.max(ttsDuration, actualVideoDuration);
-    
+    const segmentDuration = Math.max(effectiveDuration, actualVideoDuration);
+
     console.log(
-      `[Export] Segment ${i + 1}: TTS=${ttsDuration.toFixed(2)}s, ` +
-      `Video=${actualVideoDuration.toFixed(2)}s, Using=${segmentDuration.toFixed(2)}s`
+      `[Export] Segment ${i + 1}: Audio=${effectiveDuration.toFixed(2)}s, ` +
+      `Video=${actualVideoDuration.toFixed(2)}s, Using=${segmentDuration.toFixed(2)}s` +
+      (useUnifiedAudio ? ' (RVC)' : '')
     );
 
     await new Promise<void>((resolve) => {
       const renderFrame = () => {
-        // 清空画布
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         if (hasVideo && video && !video.ended) {
-          // 绘制视频帧
           drawVideoFrame(ctx, video, canvas.width, canvas.height);
         } else {
-          // 视频已结束或无视频，绘制静态角色图片
           drawImage(ctx, characterImage, canvas.width, canvas.height);
         }
 
-        // 根据媒体元素的实际播放进度来判断是否结束
-        const ttsDone =
-          ttsAudio.ended ||
-          ttsAudio.currentTime >= Math.max(0, ttsDuration - 0.05); // 留一点点余量，避免浮点误差
+        const audioEl = useUnifiedAudio ? unifiedAudio! : ttsAudio;
+        const audioDur = effectiveDuration;
+        const audioDone =
+          audioEl.ended || audioEl.currentTime >= Math.max(0, audioDur - 0.05);
 
         const videoDone =
           !hasVideo ||
@@ -229,27 +283,33 @@ export async function exportComposedVideo(
           video.ended ||
           video.currentTime >= Math.max(0, actualVideoDuration - 0.05);
 
-        if (ttsDone && videoDone) {
-          // 段落完成
+        if (audioDone && videoDone) {
           if (video) {
             video.pause();
             video.muted = true;
           }
           ttsAudio.pause();
           ttsAudio.muted = false;
+          if (unifiedAudio) unifiedAudio.pause();
           audioSource.disconnect();
           resolve();
         } else {
-          // 继续下一帧，和屏幕刷新同步，时间轴由音/视频元素自己控制
           requestAnimationFrame(renderFrame);
         }
       };
-      
+
       renderFrame();
     });
   }
 
   onProgress?.({ stage: 'encoding', progress: 85 });
+
+  // 释放 RVC 阶段创建的 blob URL
+  if (rvcOptions) {
+    for (const data of mediaData) {
+      if (data.unifiedAudioUrl) URL.revokeObjectURL(data.unifiedAudioUrl);
+    }
+  }
 
   // 停止录制并获取 blob
   const videoBlob = await new Promise<Blob>((resolve) => {

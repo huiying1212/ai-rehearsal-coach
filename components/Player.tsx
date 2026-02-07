@@ -164,6 +164,7 @@ const Player: React.FC<PlayerProps> = ({ segments, characterImage }) => {
         const stageLabels: Record<string, string> = {
           'preparing': 'Preparing...',
           'loading': `Loading media (${progress.currentSegment}/${progress.totalSegments})...`,
+          'rvc': `Unifying voice / RVC (${progress.currentSegment}/${progress.totalSegments})...`,
           'rendering': `Rendering (${progress.currentSegment}/${progress.totalSegments})...`,
           'encoding': 'Encoding video...',
           'complete': 'Complete!'

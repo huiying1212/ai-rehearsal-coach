@@ -75,5 +75,8 @@ DURATION: 8 seconds
 
 FRAME CONSISTENCY:
 The video starts with the character in the reference image pose, performs the described movements, then smoothly returns to a similar neutral pose by the end.
+
+WHEN DIALOGUE ENDS:
+Once the character has finished speaking the given lines, smoothly returns to a similar neutral pose by the end for the remainder of the video. Do not produce any other sounds after the dialogue ends.
 `.trim();
 };
