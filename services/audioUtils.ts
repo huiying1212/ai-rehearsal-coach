@@ -92,11 +92,45 @@ export function audioBufferToWavBlobUrl(buffer: AudioBuffer): string {
 
 /**
  * Extract audio track from a video element as a WAV Blob.
- * Uses MediaRecorder to capture the audio stream, then decodes to WAV.
+ *
+ * Strategy:
+ * 1. Fast path – fetch the video as ArrayBuffer and decode the audio directly (near-instant).
+ * 2. Slow path – clone the video element, play it through Web Audio MediaRecorder in real-time.
+ *
+ * IMPORTANT: We never call createMediaElementSource on the *original* video element,
+ * because that permanently reroutes the element's audio output through the Web Audio API
+ * and would break subsequent normal playback / recording during the export rendering phase.
  */
 export async function extractAudioBlobFromVideo(video: HTMLVideoElement): Promise<Blob> {
+  // --- Fast path: fetch + decodeAudioData (works if CORS allows fetching the src) ---
+  try {
+    const response = await fetch(video.src);
+    if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    try {
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      return audioBufferToWavBlob(audioBuffer);
+    } finally {
+      await ctx.close();
+    }
+  } catch (e) {
+    console.warn('[extractAudioBlobFromVideo] Fast extraction failed, falling back to real-time recording:', e);
+  }
+
+  // --- Slow path: clone the video element and record via MediaRecorder ---
+  const clonedVideo = document.createElement('video');
+  clonedVideo.crossOrigin = 'anonymous';
+  clonedVideo.playsInline = true;
+  clonedVideo.src = video.src;
+
+  await new Promise<void>((resolve, reject) => {
+    clonedVideo.onloadedmetadata = () => resolve();
+    clonedVideo.onerror = () => reject(new Error('Failed to load cloned video for audio extraction'));
+  });
+
   const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-  const source = ctx.createMediaElementSource(video);
+  const source = ctx.createMediaElementSource(clonedVideo);
   const dest = ctx.createMediaStreamDestination();
   source.connect(dest);
 
@@ -104,17 +138,22 @@ export async function extractAudioBlobFromVideo(video: HTMLVideoElement): Promis
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
-  const ended = new Promise<void>((resolve) => { video.onended = () => resolve(); });
-  video.currentTime = 0;
+  const ended = new Promise<void>((resolve) => { clonedVideo.onended = () => resolve(); });
+  clonedVideo.currentTime = 0;
   recorder.start(100);
-  video.play().catch(() => {});
+  clonedVideo.play().catch(() => {});
 
   await ended;
   recorder.stop();
   await new Promise<void>((r) => { recorder.onstop = () => r(); });
 
+  // Clean up cloned element and audio context
+  source.disconnect();
+  clonedVideo.src = '';
+
   const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
   const arrayBuffer = await blob.arrayBuffer();
   const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  await ctx.close();
   return audioBufferToWavBlob(audioBuffer);
 }
