@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Sparkles, Video, Mic, AlertCircle, Loader2, User, ImageIcon, Edit3, RefreshCw, Check, X, Trash2, Plus, Hand } from 'lucide-react';
-import { generateRehearsalScript, generateSpeech, generateActionVideo, generateCharacterImage, base64ToDataUrl, GestureTypeValue } from './services/geminiService';
-import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus, GestureType } from './types';
+import { generateRehearsalScript, generateSpeech, regenerateShorterText, generateActionVideo, generateCharacterImage, base64ToDataUrl, GestureTypeValue, reviewVideoContent } from './services/geminiService';
+import { ScriptSegment, SegmentStatus, RehearsalState, GeminiScriptResponse, CharacterStatus, GestureType, VideoReviewContext, VideoReviewResult } from './types';
 import Player from './components/Player';
 
 // Declare global for the key selection
@@ -13,6 +13,114 @@ declare global {
     };
   }
 }
+
+/**
+ * 将审查结果中的 critical/major issues 转成给 Veo 的修正指令字符串。
+ * 只取 critical 和 major，minor 不值得在 prompt 中专门说明。
+ */
+const buildReviewFeedback = (review: VideoReviewResult): string => {
+  const actionableIssues = review.issues.filter(
+    (i) => i.severity === 'critical' || i.severity === 'major'
+  );
+  if (actionableIssues.length === 0) return '';
+
+  const lines = actionableIssues.map((i) => `- [${i.category}] ${i.description}`);
+  return lines.join('\n');
+};
+
+// 文本长度限制配置
+// 基于 TTS 时长估算：4-7 秒的音频对应的文本长度
+const TEXT_LIMITS = {
+  // 中文：约 5 字/秒（TTS 语速，考虑标点停顿）
+  chinese: {
+    min: 20,  // 4s * 5 字/秒
+    max: 35,  // 7s * 5 字/秒
+    recommended: 28 // 推荐值（约 5-6 秒）
+  },
+  // 英文：约 2.8 词/秒（TTS 语速）
+  english: {
+    min: 12,  // 4s * 3 词/秒
+    max: 20,  // 7s * 2.8 词/秒
+    recommended: 16 // 推荐值（约 5-6 秒）
+  }
+};
+
+/**
+ * 检测文本主要语言（简单的启发式方法）
+ */
+const detectLanguage = (text: string): 'chinese' | 'english' => {
+  // 统计中文字符数量
+  const chineseChars = text.match(/[\u4e00-\u9fa5]/g)?.length || 0;
+  const totalChars = text.length;
+  
+  // 如果中文字符占比超过 30%，判定为中文
+  return (chineseChars / totalChars) > 0.3 ? 'chinese' : 'english';
+};
+
+/**
+ * 获取文本的"单位"数量（中文按字符，英文按单词）
+ */
+const getTextUnitCount = (text: string): { count: number; language: 'chinese' | 'english' } => {
+  const language = detectLanguage(text);
+  
+  if (language === 'chinese') {
+    // 中文：统计所有字符（包括中英文、数字、标点）
+    return { count: text.length, language };
+  } else {
+    // 英文：统计单词数
+    const words = text.trim().split(/\s+/).filter(w => w.length > 0);
+    return { count: words.length, language };
+  }
+};
+
+/**
+ * 验证文本长度是否在合理范围内
+ */
+const validateTextLength = (text: string): { 
+  valid: boolean; 
+  status: 'too-short' | 'ok' | 'warning' | 'too-long';
+  message: string;
+  count: number;
+  language: 'chinese' | 'english';
+} => {
+  const { count, language } = getTextUnitCount(text);
+  const limits = TEXT_LIMITS[language];
+  const unit = language === 'chinese' ? '字符' : '单词';
+  
+  if (count < limits.min) {
+    return {
+      valid: false,
+      status: 'too-short',
+      message: `文本过短（${count} ${unit}），建议至少 ${limits.min} ${unit}（约 4 秒）`,
+      count,
+      language
+    };
+  } else if (count > limits.max) {
+    return {
+      valid: false,
+      status: 'too-long',
+      message: `文本过长（${count} ${unit}），最多 ${limits.max} ${unit}（约 7 秒）`,
+      count,
+      language
+    };
+  } else if (count > limits.recommended) {
+    return {
+      valid: true,
+      status: 'warning',
+      message: `文本较长（${count} ${unit}），建议不超过 ${limits.recommended} ${unit}（约 5-6 秒）`,
+      count,
+      language
+    };
+  } else {
+    return {
+      valid: true,
+      status: 'ok',
+      message: `${count} ${unit}`,
+      count,
+      language
+    };
+  }
+};
 
 export default function App() {
   const [prompt, setPrompt] = useState('');
@@ -52,8 +160,76 @@ export default function App() {
       setSegments(newSegments);
       setCharacterDescription(result.character_description);
       setCharacterPersonality(result.character_personality);
-      
-      // Step 2: Generate character image (定妆照)
+
+      // Step 2: 自动 TTS 时长验证（对用户隐藏）
+      // 对每个 segment 生成 TTS，检查时长是否超过 8 秒
+      // 如果超过，自动让 LLM 缩短台词，然后重新检验，直到通过
+      setState('validating_timing');
+      const MAX_TTS_RETRIES = 3;
+      const MAX_DURATION = 8; // Veo API 使用参考图片时只支持 8 秒视频
+
+      for (let i = 0; i < newSegments.length; i++) {
+        let segment = newSegments[i];
+        let retryCount = 0;
+        let passed = false;
+
+        while (!passed && retryCount <= MAX_TTS_RETRIES) {
+          try {
+            // 生成 TTS 并检查时长
+            const audioUrl = await generateSpeech(segment.spokenText);
+            const audioDuration = await getAudioDuration(audioUrl);
+
+            console.log(`[TTS Validate] Segment ${i + 1}: "${segment.spokenText.substring(0, 30)}..." → ${audioDuration.toFixed(2)}s`);
+
+            if (audioDuration <= MAX_DURATION) {
+              // 通过验证，保存音频结果（后续 media generation 可复用）
+              newSegments[i] = {
+                ...segment,
+                audioStatus: SegmentStatus.COMPLETED,
+                audioUrl,
+                audioDuration,
+              };
+              passed = true;
+            } else {
+              // 释放不合格的音频 Blob URL
+              URL.revokeObjectURL(audioUrl);
+
+              if (retryCount < MAX_TTS_RETRIES) {
+                // 超过时长限制，让 LLM 自动缩短台词
+                console.log(`[TTS Validate] Segment ${i + 1} is ${audioDuration.toFixed(2)}s (>${MAX_DURATION}s), auto-shortening... (attempt ${retryCount + 1}/${MAX_TTS_RETRIES})`);
+                const shorterText = await regenerateShorterText(segment.spokenText, audioDuration, prompt);
+                segment = { ...segment, spokenText: shorterText };
+                newSegments[i] = segment;
+                // 更新 UI 显示最新的台词
+                setSegments([...newSegments]);
+              } else {
+                // 达到最大重试次数，使用最后一次的文本，保存音频
+                console.warn(`[TTS Validate] Segment ${i + 1} still ${audioDuration.toFixed(2)}s after ${MAX_TTS_RETRIES} retries, proceeding anyway`);
+                // 重新生成一次 TTS 以获取最新文本的音频
+                const finalAudioUrl = await generateSpeech(segment.spokenText);
+                const finalDuration = await getAudioDuration(finalAudioUrl);
+                newSegments[i] = {
+                  ...segment,
+                  audioStatus: SegmentStatus.COMPLETED,
+                  audioUrl: finalAudioUrl,
+                  audioDuration: finalDuration,
+                };
+                passed = true;
+              }
+            }
+          } catch (ttsErr) {
+            console.error(`[TTS Validate] Failed for segment ${i + 1}:`, ttsErr);
+            // TTS 生成失败时不阻塞流程，跳过验证
+            passed = true;
+          }
+          retryCount++;
+        }
+      }
+
+      // 更新所有 segment（包含验证后的文本和音频信息）
+      setSegments([...newSegments]);
+
+      // Step 3: Generate character image (定妆照)
       setState('generating_character');
       setCharacterStatus(CharacterStatus.GENERATING);
       
@@ -102,6 +278,18 @@ export default function App() {
 
   // Update a specific segment's text
   const handleUpdateSegmentText = (id: string, field: 'spokenText' | 'gestureDescription', value: string) => {
+    // 如果是修改 spokenText，检查长度限制
+    if (field === 'spokenText') {
+      const validation = validateTextLength(value);
+      
+      // 如果超过最大长度，阻止输入
+      if (validation.status === 'too-long') {
+        // 不更新 state，保持原值
+        console.warn(`[Text Validation] Text too long: ${validation.message}`);
+        return;
+      }
+    }
+    
     setSegments(prev => prev.map(seg => {
       if (seg.id !== id) return seg;
       
@@ -123,33 +311,87 @@ export default function App() {
     }));
   };
 
-  // Regenerate audio for a single segment
+  // Regenerate audio for a single segment (with automatic TTS duration validation)
   const handleRegenerateAudio = async (segmentId: string) => {
     const segment = segments.find(s => s.id === segmentId);
     if (!segment) return;
 
     updateSegmentStatus(segmentId, 'audioStatus', SegmentStatus.GENERATING);
     
+    const MAX_TTS_RETRIES = 3;
+    const MAX_DURATION = 8;
+    let currentText = segment.spokenText;
+    let retryCount = 0;
+    let passed = false;
+    
     try {
-      const audioUrl = await generateSpeech(segment.spokenText);
-      const audioDuration = await getAudioDuration(audioUrl);
-      
-      console.log(`[App] Audio regenerated for ${segmentId}: ${audioDuration.toFixed(2)}s`);
-      
-      setSegments(prev => prev.map(s => 
-        s.id === segmentId 
-          ? { 
-              ...s, 
-              audioStatus: SegmentStatus.COMPLETED, 
-              audioUrl, 
-              audioDuration,
-              // 如果音频重新生成了，视频也需要重新生成
-              videoStatus: s.gestureType !== GestureType.NONE ? SegmentStatus.IDLE : SegmentStatus.COMPLETED,
-              videoUrl: undefined,
-              videoDuration: undefined
-            } 
-          : s
-      ));
+      while (!passed && retryCount <= MAX_TTS_RETRIES) {
+        // 生成 TTS 并检查时长
+        const audioUrl = await generateSpeech(currentText);
+        const audioDuration = await getAudioDuration(audioUrl);
+        
+        console.log(`[Regenerate Audio] ${segmentId}: "${currentText.substring(0, 30)}..." → ${audioDuration.toFixed(2)}s`);
+        
+        if (audioDuration <= MAX_DURATION) {
+          // 通过验证，保存音频结果
+          console.log(`[Regenerate Audio] ${segmentId} passed validation at ${audioDuration.toFixed(2)}s`);
+          
+          setSegments(prev => prev.map(s => 
+            s.id === segmentId 
+              ? { 
+                  ...s,
+                  spokenText: currentText, // 更新为可能被缩短后的文本
+                  audioStatus: SegmentStatus.COMPLETED, 
+                  audioUrl, 
+                  audioDuration,
+                  // 如果音频重新生成了，视频也需要重新生成
+                  videoStatus: s.gestureType !== GestureType.NONE ? SegmentStatus.IDLE : SegmentStatus.COMPLETED,
+                  videoUrl: undefined,
+                  videoDuration: undefined
+                } 
+              : s
+          ));
+          passed = true;
+        } else {
+          // 释放不合格的音频 Blob URL
+          URL.revokeObjectURL(audioUrl);
+          
+          if (retryCount < MAX_TTS_RETRIES) {
+            // 超过时长限制，让 LLM 自动缩短台词
+            console.log(`[Regenerate Audio] ${segmentId} is ${audioDuration.toFixed(2)}s (>${MAX_DURATION}s), auto-shortening... (attempt ${retryCount + 1}/${MAX_TTS_RETRIES})`);
+            const shorterText = await regenerateShorterText(currentText, audioDuration, prompt);
+            currentText = shorterText;
+            
+            // 实时更新 UI 显示最新的台词
+            setSegments(prev => prev.map(s => 
+              s.id === segmentId ? { ...s, spokenText: currentText } : s
+            ));
+          } else {
+            // 达到最大重试次数，使用最后一次的文本，保存音频
+            console.warn(`[Regenerate Audio] ${segmentId} still ${audioDuration.toFixed(2)}s after ${MAX_TTS_RETRIES} retries, proceeding anyway`);
+            // 重新生成一次 TTS 以获取最新文本的音频
+            const finalAudioUrl = await generateSpeech(currentText);
+            const finalDuration = await getAudioDuration(finalAudioUrl);
+            
+            setSegments(prev => prev.map(s => 
+              s.id === segmentId 
+                ? { 
+                    ...s,
+                    spokenText: currentText,
+                    audioStatus: SegmentStatus.COMPLETED, 
+                    audioUrl: finalAudioUrl, 
+                    audioDuration: finalDuration,
+                    videoStatus: s.gestureType !== GestureType.NONE ? SegmentStatus.IDLE : SegmentStatus.COMPLETED,
+                    videoUrl: undefined,
+                    videoDuration: undefined
+                  } 
+                : s
+            ));
+            passed = true;
+          }
+        }
+        retryCount++;
+      }
     } catch (e) {
       console.error(`Audio regeneration failed for ${segmentId}`, e);
       updateSegmentStatus(segmentId, 'audioStatus', SegmentStatus.ERROR);
@@ -271,64 +513,81 @@ export default function App() {
       
       console.log(`[App] ${segmentsNeedingVideo.length} segments need video generation, ${currentSegments.filter(s => s.videoStatus === SegmentStatus.COMPLETED).length} already have video`);
       
+      const MAX_VIDEO_REVIEW_RETRIES = 2;
+
       for (const seg of segmentsNeedingVideo) {
         try {
           updateSegmentStatus(seg.id, 'videoStatus', SegmentStatus.GENERATING);
           
-          // 获取该段落的音频时长
           const audioInfo = audioResults.get(seg.id);
           const audioDuration = audioInfo?.audioDuration;
+          console.log(`[App] Segment ${seg.id} audio is ${audioDuration?.toFixed(2) || 'unknown'}s, video will be 8s`);
+
+          const reviewContext: VideoReviewContext = {
+            gestureType: seg.gestureType,
+            spokenText: seg.spokenText,
+            gestureDescription: seg.gestureDescription,
+            scenario: prompt || undefined,
+          };
           
-          // 注意：使用参考图片时，Veo API 只支持 8 秒视频
-          // https://ai.google.dev/gemini-api/docs/video#limitations
-          // 如果音频超过8秒，跳过视频生成，让用户修改段落
-          if (audioDuration && audioDuration > 8) {
-            console.warn(`[App] ⚠️ Segment ${seg.id} audio is ${audioDuration.toFixed(2)}s (>8s). Skipping video generation.`);
-            console.warn(`[App] 💡 Please go back to editing mode and split this segment into shorter parts.`);
+          let accepted = false;
+          let lastVideoUrl: string | undefined;
+          let lastVideoDuration: number | undefined;
+          let pendingFeedback: string | undefined;
+
+          for (let attempt = 0; attempt <= MAX_VIDEO_REVIEW_RETRIES; attempt++) {
+            if (attempt > 0) {
+              console.log(`[App] Re-generating video for ${seg.id} (attempt ${attempt + 1}/${MAX_VIDEO_REVIEW_RETRIES + 1}) with review feedback...`);
+            }
+
+            const result = await generateActionVideo(
+              seg.gestureType as GestureTypeValue,
+              seg.spokenText,
+              seg.gestureDescription,
+              referenceImage,
+              prompt,
+              characterPersonality || undefined,
+              pendingFeedback
+            );
             
-            // 标记为错误状态，提示用户需要修改
+            console.log(`[App] Video generated for ${seg.id}, URL: ${result.videoUrl.substring(0, 80)}...`);
+            lastVideoUrl = result.videoUrl;
+            lastVideoDuration = await getVideoDuration(result.videoUrl);
+            console.log(`[App] Video duration for ${seg.id}: ${lastVideoDuration}s`);
+
+            try {
+              const review = await reviewVideoContent(result.videoUrl, reviewContext);
+              if (review.passed) {
+                console.log(`[App] Video review PASSED for ${seg.id}`);
+                accepted = true;
+                break;
+              } else {
+                console.warn(`[App] Video review FAILED for ${seg.id}: ${review.summary}`);
+                pendingFeedback = buildReviewFeedback(review);
+                if (attempt === MAX_VIDEO_REVIEW_RETRIES) {
+                  console.warn(`[App] Max review retries reached for ${seg.id}, using last generated video`);
+                }
+              }
+            } catch (reviewErr) {
+              console.warn(`[App] Video review error for ${seg.id}, accepting video:`, reviewErr);
+              accepted = true;
+              break;
+            }
+          }
+
+          if (lastVideoUrl) {
             setSegments(prev => prev.map(s => 
               s.id === seg.id 
                 ? { 
                     ...s, 
-                    videoStatus: SegmentStatus.ERROR,
+                    videoStatus: SegmentStatus.COMPLETED,
+                    videoUrl: lastVideoUrl,
+                    videoDuration: lastVideoDuration 
                   } 
                 : s
             ));
-            continue; // 跳过这个段落，继续处理下一个
+            console.log(`[App] Segment ${seg.id} updated (review ${accepted ? 'passed' : 'used last attempt'})`);
           }
-          
-          console.log(`[App] Segment ${seg.id} audio is ${audioDuration?.toFixed(2) || 'unknown'}s, video will be 8s`);
-          
-          // 根据手势类型调用视频生成（使用参考图片时固定为8秒）
-          const result = await generateActionVideo(
-            seg.gestureType as GestureTypeValue,
-            seg.spokenText,
-            seg.gestureDescription,
-            referenceImage,
-            prompt, // 传入原始用户场景以提供上下文
-            characterPersonality || undefined // 传入角色性格以指导动作风格
-          );
-          
-          console.log(`[App] Video generated for ${seg.id}, URL: ${result.videoUrl.substring(0, 80)}...`);
-          
-          // 获取视频实际时长（可能会因为CORS失败，使用超时保护）
-          console.log(`[App] Getting video duration for ${seg.id}...`);
-          const videoDuration = await getVideoDuration(result.videoUrl);
-          console.log(`[App] Video duration for ${seg.id}: ${videoDuration}s (audio was ${audioDuration?.toFixed(2)}s)`);
-          
-          console.log(`[App] Updating segment ${seg.id} status to COMPLETED`);
-          setSegments(prev => prev.map(s => 
-            s.id === seg.id 
-              ? { 
-                  ...s, 
-                  videoStatus: SegmentStatus.COMPLETED, 
-                  videoUrl: result.videoUrl,
-                  videoDuration 
-                } 
-              : s
-          ));
-          console.log(`[App] Segment ${seg.id} updated`);
         } catch (e) {
           console.error(`Video gen failed for ${seg.id}`, e);
           updateSegmentStatus(seg.id, 'videoStatus', SegmentStatus.ERROR);
@@ -417,30 +676,70 @@ export default function App() {
 
     updateSegmentStatus(segmentId, 'videoStatus', SegmentStatus.GENERATING);
     
+    const MAX_VIDEO_REVIEW_RETRIES = 2;
+    const reviewContext: VideoReviewContext = {
+      gestureType: segment.gestureType,
+      spokenText: segment.spokenText,
+      gestureDescription: segment.gestureDescription,
+      scenario: prompt || undefined,
+    };
+
     try {
-      // 使用参考图片时，Veo API 只支持 8 秒视频
-      const result = await generateActionVideo(
-        segment.gestureType as GestureTypeValue,
-        segment.spokenText,
-        segment.gestureDescription,
-        characterImageBase64,
-        prompt, // 传入原始用户场景以提供上下文
-        characterPersonality || undefined // 传入角色性格以指导动作风格
-      );
-      
-      // 获取视频实际时长
-      const videoDuration = await getVideoDuration(result.videoUrl);
-      
-      setSegments(prev => prev.map(s => 
-        s.id === segmentId 
-          ? { 
-              ...s, 
-              videoStatus: SegmentStatus.COMPLETED, 
-              videoUrl: result.videoUrl,
-              videoDuration 
-            } 
-          : s
-      ));
+      let accepted = false;
+      let lastVideoUrl: string | undefined;
+      let lastVideoDuration: number | undefined;
+      let pendingFeedback: string | undefined;
+
+      for (let attempt = 0; attempt <= MAX_VIDEO_REVIEW_RETRIES; attempt++) {
+        if (attempt > 0) {
+          console.log(`[App] Re-generating video for ${segmentId} (attempt ${attempt + 1}/${MAX_VIDEO_REVIEW_RETRIES + 1}) with review feedback...`);
+        }
+
+        const result = await generateActionVideo(
+          segment.gestureType as GestureTypeValue,
+          segment.spokenText,
+          segment.gestureDescription,
+          characterImageBase64,
+          prompt,
+          characterPersonality || undefined,
+          pendingFeedback
+        );
+        
+        lastVideoUrl = result.videoUrl;
+        lastVideoDuration = await getVideoDuration(result.videoUrl);
+
+        try {
+          const review = await reviewVideoContent(result.videoUrl, reviewContext);
+          if (review.passed) {
+            console.log(`[App] Video review PASSED for ${segmentId}`);
+            accepted = true;
+            break;
+          } else {
+            console.warn(`[App] Video review FAILED for ${segmentId}: ${review.summary}`);
+            pendingFeedback = buildReviewFeedback(review);
+            if (attempt === MAX_VIDEO_REVIEW_RETRIES) {
+              console.warn(`[App] Max review retries reached for ${segmentId}, using last generated video`);
+            }
+          }
+        } catch (reviewErr) {
+          console.warn(`[App] Video review error for ${segmentId}, accepting video:`, reviewErr);
+          accepted = true;
+          break;
+        }
+      }
+
+      if (lastVideoUrl) {
+        setSegments(prev => prev.map(s => 
+          s.id === segmentId 
+            ? { 
+                ...s, 
+                videoStatus: SegmentStatus.COMPLETED, 
+                videoUrl: lastVideoUrl,
+                videoDuration: lastVideoDuration 
+              } 
+            : s
+        ));
+      }
     } catch (e) {
       console.error(`Video regeneration failed for ${segmentId}`, e);
       updateSegmentStatus(segmentId, 'videoStatus', SegmentStatus.ERROR);
@@ -487,7 +786,7 @@ export default function App() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               disabled={state !== 'input' && state !== 'ready' && state !== 'editing'}
-              placeholder="e.g., You are giving a toast at a best friend's wedding..."
+              placeholder="e.g., You are giving a toast at a best friend's wedding, 例如：你在好朋友的婚礼上致祝酒词..."
               className="w-full h-32 bg-gray-900 border border-gray-700 rounded-xl p-4 text-white placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none transition-all disabled:opacity-50"
             />
             
@@ -506,6 +805,10 @@ export default function App() {
               {state === 'scripting' ? (
                 <>
                   <Loader2 className="animate-spin mr-2" /> Scripting...
+                </>
+              ) : state === 'validating_timing' ? (
+                <>
+                  <Loader2 className="animate-spin mr-2" /> Validating Timing...
                 </>
               ) : state === 'generating_character' ? (
                 <>
@@ -678,16 +981,67 @@ export default function App() {
                     {/* Spoken Text - Editable in editing state */}
                     {state === 'editing' ? (
                       <div className="mb-3">
-                        <label className="text-xs text-gray-500 mb-1 block flex items-center">
-                          <Mic className="w-3 h-3 mr-1" />
-                          Spoken Text
+                        <label className="text-xs text-gray-500 mb-1 block flex items-center justify-between">
+                          <span className="flex items-center">
+                            <Mic className="w-3 h-3 mr-1" />
+                            Spoken Text
+                          </span>
+                          {/* 实时字符/单词计数 */}
+                          {(() => {
+                            const validation = validateTextLength(seg.spokenText);
+                            const colorClass = 
+                              validation.status === 'too-short' ? 'text-amber-400' :
+                              validation.status === 'too-long' ? 'text-red-400' :
+                              validation.status === 'warning' ? 'text-yellow-400' :
+                              'text-green-400';
+                            return (
+                              <span className={`text-xs ${colorClass}`}>
+                                {validation.message}
+                              </span>
+                            );
+                          })()}
                         </label>
                         <textarea
                           value={seg.spokenText}
                           onChange={(e) => handleUpdateSegmentText(seg.id, 'spokenText', e.target.value)}
-                          className="w-full bg-gray-800 border border-gray-600 rounded-lg p-2 text-sm text-gray-200 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          className={`w-full bg-gray-800 border rounded-lg p-2 text-sm text-gray-200 resize-none focus:ring-2 focus:border-transparent ${
+                            (() => {
+                              const validation = validateTextLength(seg.spokenText);
+                              return validation.status === 'too-long' ? 'border-red-500 focus:ring-red-500' :
+                                     validation.status === 'warning' ? 'border-yellow-500 focus:ring-yellow-500' :
+                                     validation.status === 'too-short' ? 'border-amber-500 focus:ring-amber-500' :
+                                     'border-gray-600 focus:ring-indigo-500';
+                            })()
+                          }`}
                           rows={2}
                         />
+                        {/* 长度提示信息 */}
+                        {(() => {
+                          const validation = validateTextLength(seg.spokenText);
+                          if (validation.status === 'too-short') {
+                            return (
+                              <p className="text-xs text-amber-400 mt-1 flex items-center">
+                                <AlertCircle className="w-3 h-3 mr-1" />
+                                文本过短，建议增加内容以达到 4-7 秒时长
+                              </p>
+                            );
+                          } else if (validation.status === 'too-long') {
+                            return (
+                              <p className="text-xs text-red-400 mt-1 flex items-center">
+                                <AlertCircle className="w-3 h-3 mr-1" />
+                                文本过长，已达到最大长度限制（7 秒）
+                              </p>
+                            );
+                          } else if (validation.status === 'warning') {
+                            return (
+                              <p className="text-xs text-yellow-400 mt-1 flex items-center">
+                                <AlertCircle className="w-3 h-3 mr-1" />
+                                文本较长，建议精简以确保最佳效果
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     ) : (
                       <p className="text-sm text-gray-300 mb-2 italic">"{seg.spokenText}"</p>
@@ -696,20 +1050,10 @@ export default function App() {
                     {/* Gesture Type & Description - Editable in editing state or when video failed */}
                     {state === 'editing' || seg.videoStatus === SegmentStatus.ERROR ? (
                       <div className="space-y-2">
-                        {/* 如果音频超过8秒，显示警告 */}
-                        {seg.audioDuration && seg.audioDuration > 8 && (
-                          <div className="p-2 bg-red-900/30 border border-red-500/50 rounded-lg text-red-300 text-xs">
-                            <strong>⚠️ 音频时长 {seg.audioDuration.toFixed(1)}秒 超过8秒限制</strong>
-                            <p className="mt-1 opacity-80">
-                              视频API只支持8秒，请缩短此段落的台词或拆分成多个段落。
-                            </p>
-                          </div>
-                        )}
-                        
                         <label className="text-xs text-gray-500 mb-1 block flex items-center">
                           <Hand className="w-3 h-3 mr-1" />
                           Gesture Type
-                          {seg.videoStatus === SegmentStatus.ERROR && seg.audioDuration && seg.audioDuration <= 8 && (
+                          {seg.videoStatus === SegmentStatus.ERROR && (
                             <span className="ml-2 text-red-400">(视频生成失败 - 请编辑后重试)</span>
                           )}
                         </label>
@@ -747,9 +1091,8 @@ export default function App() {
                           <div className="mt-3 pt-3 border-t border-gray-700 space-y-2">
                             {/* 显示当前状态 */}
                             {seg.audioDuration && (
-                              <div className={`text-xs ${seg.audioDuration > 8 ? 'text-red-400' : 'text-gray-400'}`}>
-                                当前音频时长: {seg.audioDuration.toFixed(1)}s 
-                                {seg.audioDuration > 8 && ' ⚠️ 超过8秒限制'}
+                              <div className="text-xs text-gray-400">
+                                当前音频时长: {seg.audioDuration.toFixed(1)}s
                               </div>
                             )}
                             
@@ -777,10 +1120,9 @@ export default function App() {
                               )}
                             </button>
                             
-                            {/* 重新生成视频按钮 - 仅当音频已完成且时长<=8秒 */}
+                            {/* 重新生成视频按钮 - 仅当音频已完成 */}
                             {seg.gestureType !== GestureType.NONE && 
                              seg.audioStatus === SegmentStatus.COMPLETED &&
-                             seg.audioDuration && seg.audioDuration <= 8 &&
                              seg.videoStatus !== SegmentStatus.COMPLETED && (
                               <button
                                 onClick={() => handleRegenerateVideo(seg.id)}
@@ -803,8 +1145,7 @@ export default function App() {
                             
                             {/* 已完成状态 */}
                             {seg.audioStatus === SegmentStatus.COMPLETED && 
-                             (seg.gestureType === GestureType.NONE || seg.videoStatus === SegmentStatus.COMPLETED) && 
-                             seg.audioDuration && seg.audioDuration <= 8 && (
+                             (seg.gestureType === GestureType.NONE || seg.videoStatus === SegmentStatus.COMPLETED) && (
                               <div className="text-xs text-green-400 flex items-center">
                                 <Check className="w-3 h-3 mr-1" />
                                 已完成生成
@@ -816,8 +1157,7 @@ export default function App() {
                         {/* ready 状态下的重新生成按钮（视频失败时） */}
                         {state === 'ready' && 
                          seg.videoStatus === SegmentStatus.ERROR && 
-                         seg.gestureType !== GestureType.NONE && 
-                         (!seg.audioDuration || seg.audioDuration <= 8) && (
+                         seg.gestureType !== GestureType.NONE && (
                           <button
                             onClick={() => handleRegenerateVideo(seg.id)}
                             disabled={seg.videoStatus === SegmentStatus.GENERATING || !characterImageBase64}
@@ -878,7 +1218,7 @@ export default function App() {
                     <div className="p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg text-amber-200 text-sm mb-3">
                       <strong>⚠️ 部分段落视频生成失败</strong>
                       <p className="mt-1 opacity-80">
-                        请点击下方按钮返回编辑模式，修改超时的段落后重新生成。
+                        请点击下方按钮返回编辑模式，修改相关段落后重新生成。
                       </p>
                     </div>
                   )}
@@ -924,13 +1264,15 @@ export default function App() {
             </div>
           )}
           
-          {(state === 'generating_character' || state === 'generating_media') && (
+          {(state === 'validating_timing' || state === 'generating_character' || state === 'generating_media') && (
             <div className="mt-6 p-4 bg-indigo-900/20 border border-indigo-500/30 rounded-xl text-indigo-200 text-sm flex items-start">
               <Loader2 className="w-5 h-5 mr-3 animate-spin shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold">Production in progress...</p>
                 <p className="opacity-80 mt-1">
-                  {state === 'generating_character' 
+                  {state === 'validating_timing'
+                    ? "Validating script timing to ensure each segment fits within the video duration limit. This may take a moment..."
+                    : state === 'generating_character' 
                     ? "Creating your character's reference image. This will be used for all video segments."
                     : "Audio generation is fast. Video generation (Veo) takes longer (several minutes). The player will update automatically as assets become available."
                   }

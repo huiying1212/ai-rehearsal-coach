@@ -18,6 +18,11 @@ export interface VideoPromptParams {
   gestureDescription?: string;
   scenario?: string;
   characterPersonality?: string;
+  /**
+   * 上一次审查失败时提炼出的修正建议。
+   * 有值时会在 prompt 末尾追加 CORRECTION 段落，指引模型规避已知问题。
+   */
+  reviewFeedback?: string;
 }
 
 /**
@@ -26,7 +31,7 @@ export interface VideoPromptParams {
  * @returns 完整的 prompt 字符串
  */
 export const getVideoPrompt = (params: VideoPromptParams): string => {
-  const { gestureType, spokenText, gestureDescription, scenario, characterPersonality } = params;
+  const { gestureType, spokenText, gestureDescription, scenario, characterPersonality, reviewFeedback } = params;
   
   // 添加场景上下文（如果提供）
   const contextPrefix = scenario ? `Context: This is for a ${scenario}.\n` : '';
@@ -78,5 +83,8 @@ The video starts with the character in the reference image pose, performs the de
 
 WHEN DIALOGUE ENDS:
 Once the character has finished speaking the given lines, smoothly returns to a similar neutral pose by the end for the remainder of the video. Do not produce any other sounds after the dialogue ends.
-`.trim();
+${reviewFeedback ? `
+CORRECTION (a previous attempt was rejected — address ALL of the following):
+${reviewFeedback}
+` : ''}`.trim();
 };

@@ -32,7 +32,7 @@ export interface ScriptSegment {
 
 export interface RehearsalState {
   segments: ScriptSegment[];
-  status: 'input' | 'scripting' | 'generating_character' | 'editing' | 'generating_media' | 'ready';
+  status: 'input' | 'scripting' | 'validating_timing' | 'generating_character' | 'editing' | 'generating_media' | 'ready';
 }
 
 export interface GeminiScriptResponse {
@@ -51,4 +51,33 @@ export enum CharacterStatus {
   GENERATING = 'GENERATING',
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR',
+}
+
+// Video content review types
+
+export type VideoReviewCategory =
+  | 'prompt_adherence'
+  | 'body_naturalness'
+  | 'visual_quality'
+  | 'inappropriate_content'
+  | 'social_norms'
+  | 'robot_safety';
+
+export interface VideoReviewIssue {
+  category: VideoReviewCategory;
+  severity: 'critical' | 'major' | 'minor';
+  description: string;
+}
+
+export interface VideoReviewResult {
+  passed: boolean;
+  issues: VideoReviewIssue[];
+  summary: string;
+}
+
+export interface VideoReviewContext {
+  gestureType: string;
+  spokenText: string;
+  gestureDescription?: string;
+  scenario?: string;
 }

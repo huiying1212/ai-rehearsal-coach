@@ -7,4 +7,5 @@
 export { getScriptPrompt } from './scriptPrompt';
 export { getImagePrompt } from './imagePrompt';
 export { getVideoPrompt, type VideoPromptParams, type GestureTypeValue } from './videoPrompt';
+export { getVideoReviewPrompt } from './videoReviewPrompt';
 

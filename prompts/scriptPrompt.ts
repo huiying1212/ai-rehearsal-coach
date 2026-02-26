@@ -19,12 +19,12 @@ Create a rehearsal script. Break the performance down into **fine-grained segmen
 
 **CRITICAL SEGMENT LENGTH RULES:**
 - Each video segment is FIXED at 8 seconds (Veo API limitation with reference images)
-- Each 'spoken_text' should be 1 short sentence or phrase that can be spoken in 4-5 seconds
-- English: approximately 10-15 words per segment (shorter is better)
-- Chinese: approximately 15-25 characters per segment (shorter is better)
+- Each 'spoken_text' should be 1 short sentence or phrase that can be spoken in 4-7 seconds
+- English: approximately 12-20 words per segment (shorter is better)
+- Chinese: approximately 20-35 characters per segment (shorter is better)
 - If content is longer, split it into multiple segments
 - Aim for 3-5 segments total for a typical presentation
-- Leave ~2-3 seconds buffer at the end for the character to return to neutral pose
+- Leave ~1 second buffer at the end for the character to return to neutral pose
 
 For each segment, analyze what gesture category is most appropriate:
 

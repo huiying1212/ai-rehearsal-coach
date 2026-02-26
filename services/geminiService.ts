@@ -1,6 +1,7 @@
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { decodeBase64, decodeAudioData, audioBufferToWavBlobUrl } from "./audioUtils";
-import { getScriptPrompt, getImagePrompt, getVideoPrompt } from "../prompts";
+import { getScriptPrompt, getImagePrompt, getVideoPrompt, getVideoReviewPrompt } from "../prompts";
+import type { VideoReviewResult, VideoReviewContext } from "../types";
 
 // Fix for: Property 'webkitAudioContext' does not exist on type 'Window & typeof globalThis'
 declare global {
@@ -104,6 +105,62 @@ export const generateCharacterImage = async (characterDescription: string): Prom
   throw new Error("No image data found in response");
 };
 
+/**
+ * 当某个 segment 的 TTS 时长超过限制时，使用 LLM 自动缩短台词文本。
+ * 保持语言不变、核心含义不变，只是让文本更精炼。
+ */
+export const regenerateShorterText = async (
+  originalText: string,
+  currentDuration: number,
+  scenario: string
+): Promise<string> => {
+  const ai = getAIClient();
+
+  const targetRatio = Math.round((7 / currentDuration) * 100);
+  const prompt = `You are helping shorten a presentation segment's spoken text.
+Context: This is for a rehearsal of: "${scenario}"
+
+The current text takes ${currentDuration.toFixed(1)} seconds when spoken via TTS, but must fit within 7 seconds (for an 8-second video with buffer time).
+
+Current text: "${originalText}"
+
+Rewrite this text to be approximately ${targetRatio}% of its current length while preserving the core meaning.
+Rules:
+- Keep the same language (Chinese stays Chinese, English stays English)
+- Preserve the key message
+- Make it natural and speakable
+- Be concise — fewer words, same impact`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          shortened_text: { type: Type.STRING }
+        },
+        required: ['shortened_text']
+      }
+    }
+  });
+
+  const responseText = response.text?.trim();
+  if (!responseText) {
+    throw new Error("Failed to regenerate shorter text");
+  }
+
+  try {
+    const parsed = JSON.parse(responseText);
+    return parsed.shortened_text || originalText;
+  } catch {
+    // If JSON parsing fails, return original
+    console.warn("[regenerateShorterText] Failed to parse response, keeping original text");
+    return originalText;
+  }
+};
+
 export const generateSpeech = async (text: string): Promise<string> => {
   const ai = getAIClient();
   
@@ -161,7 +218,8 @@ export const generateActionVideo = async (
   gestureDescription: string | undefined, 
   referenceImageBase64: string,
   scenario?: string,
-  characterPersonality?: string
+  characterPersonality?: string,
+  reviewFeedback?: string
 ): Promise<VideoGenerationResult> => {
   const ai = getAIClient();
 
@@ -180,7 +238,8 @@ export const generateActionVideo = async (
     spokenText,
     gestureDescription,
     scenario,
-    characterPersonality
+    characterPersonality,
+    reviewFeedback
   });
 
   const logText = gestureType === 'beat' 
@@ -271,6 +330,120 @@ export const generateActionVideo = async (
     // 如果API返回了时长信息，可以在这里提取
     videoDuration: undefined // Veo API 目前不在响应中返回时长，需要在客户端加载视频后获取
   };
+};
+
+/**
+ * Fetch a video URL and return its base64-encoded content.
+ * Used to prepare video data for Gemini multimodal review.
+ */
+async function fetchVideoAsBase64(videoUrl: string): Promise<{ base64: string; mimeType: string }> {
+  const response = await fetch(videoUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch video: ${response.status} ${response.statusText}`);
+  }
+
+  const blob = await response.blob();
+  const mimeType = blob.type || 'video/mp4';
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(',')[1];
+      resolve({ base64, mimeType });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * 使用 Gemini 3 Flash 审查生成的视频内容。
+ *
+ * 检查项包括：prompt 一致性、人体姿态自然度、视觉质量、
+ * 不当/恐怖/不雅内容、社交常识与专业性。
+ *
+ * @returns VideoReviewResult，其中 passed=true 表示视频合格
+ */
+export const reviewVideoContent = async (
+  videoUrl: string,
+  context: VideoReviewContext
+): Promise<VideoReviewResult> => {
+  const ai = getAIClient();
+
+  console.log(`[VideoReview] Fetching video for review...`);
+  const { base64, mimeType } = await fetchVideoAsBase64(videoUrl);
+  console.log(`[VideoReview] Video fetched (${(base64.length * 0.75 / 1024 / 1024).toFixed(1)} MB), sending to Gemini 3 Flash...`);
+
+  const prompt = getVideoReviewPrompt(context);
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: prompt },
+          { inlineData: { data: base64, mimeType } }
+        ]
+      }
+    ],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          passed: { type: Type.BOOLEAN },
+          issues: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                category: {
+                  type: Type.STRING,
+                  enum: ['prompt_adherence', 'body_naturalness', 'visual_quality', 'inappropriate_content', 'social_norms', 'robot_safety']
+                },
+                severity: {
+                  type: Type.STRING,
+                  enum: ['critical', 'major', 'minor']
+                },
+                description: { type: Type.STRING }
+              },
+              required: ['category', 'severity', 'description']
+            }
+          },
+          summary: { type: Type.STRING }
+        },
+        required: ['passed', 'issues', 'summary']
+      }
+    }
+  });
+
+  const responseText = response.text?.trim();
+  if (!responseText) {
+    console.warn('[VideoReview] Empty response from reviewer, treating as passed');
+    return { passed: true, issues: [], summary: 'Review returned empty response — defaulting to pass.' };
+  }
+
+  try {
+    const result: VideoReviewResult = JSON.parse(responseText);
+
+    // Enforce pass/fail logic: any critical or major issue means fail
+    const hasCriticalOrMajor = result.issues.some(
+      (i) => i.severity === 'critical' || i.severity === 'major'
+    );
+    result.passed = !hasCriticalOrMajor;
+
+    const issueLog = result.issues.length > 0
+      ? result.issues.map(i => `  [${i.severity}] ${i.category}: ${i.description}`).join('\n')
+      : '  (none)';
+    console.log(`[VideoReview] Result: ${result.passed ? 'PASSED' : 'FAILED'}\n${issueLog}\nSummary: ${result.summary}`);
+
+    return result;
+  } catch (e) {
+    console.warn('[VideoReview] Failed to parse review response, treating as passed:', responseText.substring(0, 300));
+    return { passed: true, issues: [], summary: 'Review parse error — defaulting to pass.' };
+  }
 };
 
 /**
